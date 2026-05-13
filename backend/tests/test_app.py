@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 from app import app
-from model_configs import SUPPORTED_MODELS
+from model_config import SUPPORTED_MODELS
 
 client = TestClient(app)
 
@@ -52,3 +52,25 @@ def test_invalid_model():
     }
     response = client.post("/simulate", json=payload)
     assert response.status_code == 404
+
+def test_attention_parameters():
+    # Test text referencing technical architectures
+    payload = {
+        "text": "The PayGate decentralized gateway utilizes the L402 protocol on the Base network, engineered by Karamveer Singh, Divyanshu Sekhar, and Aditya Pat.",
+        "model": "claude-sonnet-4-6",
+        "decay_power": 4.0,       # Sharp drop
+        "recency_strength": 1.0   # Heavy end-bias
+    }
+    response = client.post("/simulate", json=payload)
+    assert response.status_code == 200
+
+    data = response.json()
+    weights = data["attention_weights"]
+
+    # Verify Recency Bias (Asymmetry)
+    # The end of the prompt should have higher attention than the start
+    assert weights[-1] > weights[0]
+
+    # Verify Sharp Decay in the middle
+    mid_idx = len(weights) // 2
+    assert weights[mid_idx] < 0.2  # Should drop significantly due to power=4.0

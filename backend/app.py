@@ -3,6 +3,7 @@ from schemas import SimulateRequest, SimulateResponse, CostEstimate
 from model_config import SUPPORTED_MODELS
 from tokenizer_engine import get_tokens
 from context_simulator import calculate_attention_weights
+from analyzer import analyze_prompt_failure
 app = FastAPI(title="Tokaroo API")
 
 @app.post("/simulate", response_model=SimulateResponse)
@@ -32,7 +33,17 @@ def simulate_context(request: SimulateRequest):
         lost_tokens = token_ids[:-context_window]
 
     # 4. Calculate Costs
-    attention_weights = calculate_attention_weights(visible_tokens)
+    attention_weights = calculate_attention_weights(
+        visible_tokens=visible_tokens,
+        decay_power=request.decay_power,
+        recency_strength=request.recency_strength
+    )
+
+    analysis_data = analyze_prompt_failure(
+        token_count=token_count,
+        context_window=context_window,
+        attention_weights=attention_weights
+    )
     input_cost = (token_count / 1_000_000) * config["input_price_per_m"]
     return SimulateResponse(
         model=request.model,
@@ -42,13 +53,10 @@ def simulate_context(request: SimulateRequest):
         overflow=overflow,
         visible_tokens=visible_tokens,  # In a real app with huge text, you might want to omit returning full arrays, but fine for MVP
         lost_tokens=lost_tokens,
-        attention_weights = calculate_attention_weights(
-        visible_tokens=visible_tokens,
-        decay_power=request.decay_power,
-        recency_strength=request.recency_strength
-    ),
+        attention_weights=attention_weights,
         cost=CostEstimate(
             input=round(input_cost, 6),
             output_per_1k=config["output_price_per_m"] / 1000
-        )
+        ),
+        analysis=analysis_data
     )
