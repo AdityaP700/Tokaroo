@@ -1,16 +1,35 @@
-def calculate_attention_weights(visible_tokens: list[int], min_attention: float = 0.1) -> list[float]:
+def calculate_attention_weights(
+    visible_tokens: list[int],
+    min_attention: float = 0.1,
+    decay_power: float = 2.0,       # 1=linear, 2=U-shape, 4=sharp drop
+    recency_strength: float = 0.3   # Higher = end tokens matter much more
+) -> list[float]:
+    """
+    Simulates LLM attention decay with asymmetric recency bias and adjustable curves.
+    """
     n = len(visible_tokens)
 
-    # If the text is incredibly short, attention is perfect
     if n <= 2:
         return [1.0] * n
 
-    weights = []
-    for i in range(n):
-        # Normalize position to [0, 1]
-        x = i / (n - 1)
-        # Calculate U-shape: 1.0 at edges, min_attention at exact center (0.5)
-        w = min_attention + (1 - min_attention) * 4 * ((x - 0.5) ** 2)
-        weights.append(round(w, 4))
+    raw_weights = []
 
-    return weights
+    for i in range(n):
+        # 1. Normalize position x to [0, 1]
+        x = i / (n - 1)
+
+        # We use |2x - 1| to map x from [0, 1] to a [-1, 1] scale,
+        # so the absolute value centers the drop exactly at 0.5
+        base_weight = min_attention + (1 - min_attention) * (abs(2 * x - 1) ** decay_power)
+
+        # 3. Recency Bias (Asymmetry)
+        recency_boost = x ** (1 + recency_strength)
+
+        # Combine
+        w = base_weight * (1 + recency_boost)
+        raw_weights.append(w)
+
+    max_w = max(raw_weights)
+    normalized_weights = [round(w / max_w, 4) for w in raw_weights]
+
+    return normalized_weights
