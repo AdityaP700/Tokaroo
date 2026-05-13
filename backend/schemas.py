@@ -1,5 +1,5 @@
 from pydantic import BaseModel,Field
-from typing import List,Optional
+from typing import List,Optional,Dict
 
 class SimulateRequest(BaseModel):
     text: str
@@ -29,3 +29,20 @@ class SimulateResponse(BaseModel):
     attention_weights: List[float]
     cost: CostEstimate
     analysis: PromptAnalysis
+
+class CompareRequest(BaseModel):
+    text: str
+
+class ModelComparisonResult(BaseModel):
+    token_count: int
+    context_window: int
+    token_to_char_ratio: float
+    efficiency_score: float         # char_count / token_count
+    est_input_cost: float
+    explosion_warning: bool
+
+class CompareResponse(BaseModel):
+    text_length_chars: int
+    models: Dict[str, ModelComparisonResult]
+    recommended_model: str          # Model with the lowest token count
+    estimated_cost_multiplier: str
