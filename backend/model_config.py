@@ -17,4 +17,10 @@ SUPPORTED_MODELS = {
         "output_price_per_m": 12.00,         # USD / 1M output tokens
         "tokenizer": "cl100k_base"           # Approximate; Google uses own enc, but cl100k works reasonably for MVP
     },
+    "llama-3-8b-instruct": {
+        "context_window": 8_192,
+        "input_price_per_m": 0.20,  # Typical open-source API pricing
+        "output_price_per_m": 0.20,
+        "tokenizer": "llama_sentencepiece"
+    }
 }
