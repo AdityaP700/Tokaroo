@@ -1,10 +1,11 @@
 from fastapi import FastAPI, HTTPException
-from schemas import SimulateRequest, SimulateResponse, CostEstimate,CompareRequest, CompareResponse,ModelComparisonResult
+from schemas import SimulateRequest, SimulateResponse, CostEstimate,CompareRequest, CompareResponse,ModelComparisonResult,RagChunkRequest, RagChunkResponse
 from model_config import SUPPORTED_MODELS
 from tokenizer_engine import get_tokens
 from context_simulator import calculate_attention_weights
 from analyzer import analyze_prompt_failure
 from typing import Dict
+from chunk_simulator import simulate_rag_chunks
 app = FastAPI(title="Tokaroo API")
 
 @app.post("/simulate", response_model=SimulateResponse)
@@ -111,4 +112,49 @@ def compare_tokenizers(request: CompareRequest):
         models=results,
         recommended_model=best_model,
         estimated_cost_multiplier=f"{round(multiplier, 1)}x baseline English"
+    )
+
+@app.post("/simulate-rag", response_model=RagChunkResponse)
+def simulate_rag_pipeline(request: RagChunkRequest):
+    if request.model not in SUPPORTED_MODELS:
+        raise HTTPException(status_code=404, detail="Model not supported.")
+
+    config = SUPPORTED_MODELS[request.model]
+    token_ids = get_tokens(request.text, config["tokenizer"])
+
+    # Guardrails for bad math
+    if request.overlap >= request.chunk_size:
+        raise HTTPException(status_code=400, detail="Overlap must be less than chunk size.")
+
+    # Run the chunking simulator
+    rag_data = simulate_rag_pipeline(
+        token_ids=token_ids,
+        chunk_size=request.chunk_size,
+        overlap=request.overlap,
+        tokenizer_name=config["tokenizer"],
+        top_k=request.top_k,
+        retrieval_strategy=request.retrieval_strategy,
+        context_window=config["context_window"]
+    )
+
+    # ---------------------------------------------------------
+    # PROMPT OPTIMIZATION ENGINE
+    # ---------------------------------------------------------
+    suggestion = "Optimal retrieval setup."
+
+    if rag_data["chunks_in_prompt"] < request.top_k:
+        suggestion = f"Context Window Limit hit! Only {rag_data['chunks_in_prompt']} out of {request.top_k} requested chunks fit."
+    elif request.retrieval_strategy == "sequential" and rag_data["chunks_in_prompt"] > 5:
+        suggestion = "Sequential insertion with >5 chunks causes massive middle-decay. Switch to relevance-sorted retrieval."
+    elif any(c["risk_level"].startswith("critical") for c in rag_data["chunks"]):
+        suggestion = "Critical data loss in middle chunks. Consider reducing Top-K or injecting high-relevance chunks at the end of the prompt."
+
+    return RagChunkResponse(
+        model=request.model,
+        total_original_tokens=rag_data["total_original_tokens"],
+        total_chunks_created=rag_data["total_chunks_created"],
+        chunks_in_prompt=rag_data["chunks_in_prompt"],
+        extra_tokens_due_to_overlap=rag_data["extra_tokens_due_to_overlap"],
+        optimization_suggestion=suggestion,
+        chunks=rag_data["chunks"]
     )

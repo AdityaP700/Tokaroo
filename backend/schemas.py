@@ -46,3 +46,31 @@ class CompareResponse(BaseModel):
     models: Dict[str, ModelComparisonResult]
     recommended_model: str          # Model with the lowest token count
     estimated_cost_multiplier: str
+    
+class RagChunkRequest(BaseModel):
+    text: str
+    model: str
+    chunk_size: int
+    overlap: int
+    top_k: Optional[int] = Field(default=5, description="Number of chunks retrieved by Vector DB")
+    retrieval_strategy: Optional[str] = Field(default="relevance_sorted", description="'sequential' or 'relevance_sorted'")
+
+class ChunkDetail(BaseModel):
+    chunk_index: int
+    similarity_score: float      # Fake Vector DB relevance
+    positional_weight: float     # U-shape curve weight
+    final_importance: float      # Combined metric
+    risk_level: str
+    start_token: int
+    end_token: int
+    token_count: int
+    boundary_snippet: str
+
+class RagChunkResponse(BaseModel):
+    model: str
+    total_original_tokens: int
+    total_chunks_created: int
+    chunks_in_prompt: int
+    extra_tokens_due_to_overlap: int
+    optimization_suggestion: str
+    chunks: List[ChunkDetail]
