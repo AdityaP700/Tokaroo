@@ -5,7 +5,7 @@ from tokenizer_engine import get_tokens
 from context_simulator import calculate_attention_weights
 from analyzer import analyze_prompt_failure
 from typing import Dict
-from chunk_simulator import simulate_rag_chunks
+from chunk_simulator import simulate_rag_pipeline
 app = FastAPI(title="Tokaroo API")
 
 @app.post("/simulate", response_model=SimulateResponse)
