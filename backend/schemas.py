@@ -46,7 +46,7 @@ class CompareResponse(BaseModel):
     models: Dict[str, ModelComparisonResult]
     recommended_model: str          # Model with the lowest token count
     estimated_cost_multiplier: str
-    
+
 class RagChunkRequest(BaseModel):
     text: str
     model: str
@@ -66,11 +66,23 @@ class ChunkDetail(BaseModel):
     token_count: int
     boundary_snippet: str
 
+
+class FinalDiagnosis(BaseModel):
+    primary_issue: str
+    confidence: float
+    impact: str
+    short_summary: str
+
+
+class OptimizationInsight(BaseModel):
+    diagnosis: FinalDiagnosis
+    actionable_steps: List[str]
+
 class RagChunkResponse(BaseModel):
     model: str
     total_original_tokens: int
     total_chunks_created: int
     chunks_in_prompt: int
     extra_tokens_due_to_overlap: int
-    optimization_suggestion: str
+    optimization: OptimizationInsight
     chunks: List[ChunkDetail]
