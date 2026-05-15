@@ -171,6 +171,7 @@ def test_generate_rag_diagnosis_keeps_small_inputs_optimal():
     assert diagnosis["diagnosis"]["primary_issue"] == "optimal"
     assert diagnosis["diagnosis"]["impact"] == "low"
     assert diagnosis["actionable_steps"] == ["No changes needed. Keep building!"]
+    assert diagnosis["health_score"] == 100
 
 
 def test_generate_rag_diagnosis_flags_middle_decay():
@@ -206,6 +207,22 @@ def test_generate_rag_diagnosis_flags_token_redundancy():
     assert diagnosis["diagnosis"]["primary_issue"] == "high_token_redundancy"
     assert diagnosis["diagnosis"]["impact"] == "medium"
     assert any("overlap" in step.lower() for step in diagnosis["actionable_steps"])
+
+
+def test_generate_rag_diagnosis_flags_over_chunking():
+    rag_data = {
+        "total_original_tokens": 200,
+        "total_chunks_created": 11,
+        "chunks_in_prompt": 5,
+        "extra_tokens_due_to_overlap": 20,
+        "chunks": [{"similarity_score": 0.8, "positional_weight": 0.9}],
+    }
+
+    diagnosis = generate_rag_diagnosis(rag_data, top_k=5, retrieval_strategy="relevance_sorted", chunk_size=20)
+
+    assert diagnosis["diagnosis"]["primary_issue"] == "over_chunking"
+    assert diagnosis["diagnosis"]["impact"] == "high"
+    assert diagnosis["health_score"] < 100
 
 
 def test_simulate_rag_pipeline_marks_single_chunk_safe():

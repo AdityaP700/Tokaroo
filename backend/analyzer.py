@@ -65,15 +65,44 @@ def generate_rag_diagnosis(
     chunks_in_prompt = rag_data.get("chunks_in_prompt", 0)
     extra_tokens = rag_data.get("extra_tokens_due_to_overlap", 0)
     chunk_size = chunk_size or rag_data.get("chunk_size", 1) or 1
+    overlap_ratio = extra_tokens / max(1, total_chunks_created * chunk_size)
 
     primary_issue = "optimal"
     impact = "low"
     confidence = 0.95
     short_summary = "RAG pipeline is healthy and context utilization is optimal."
     actionable_steps: list[str] = []
+    health_score = 100.0
 
-    # Check 1: Context Window Truncation (Highest Impact)
-    if rag_data.get("error") == "context_window_overflow" or (
+    # Health score penalty model.
+    health_score -= overlap_ratio * 40
+    health_score -= max(0, total_chunks_created - 5) * 5
+    health_score = max(0, min(100, int(health_score)))
+
+    # Check 1: Token Redundancy (Highest Priority)
+    if overlap_ratio > 0.4:
+        primary_issue = "high_token_redundancy"
+        impact = "high"
+        confidence = 0.95
+        short_summary = "Excessive overlap causing major token duplication."
+        actionable_steps.extend([
+            "Reduce overlap to 10-20% of chunk size.",
+            "Avoid overlapping too many chunks for small inputs."
+        ])
+
+    # Check 2: Over-chunking (Too many fragments)
+    elif total_chunks_created > 10:
+        primary_issue = "over_chunking"
+        impact = "high"
+        confidence = 0.9
+        short_summary = "Too many chunks created for given input size, causing fragmentation."
+        actionable_steps.extend([
+            "Increase chunk size to reduce fragmentation.",
+            "Aim for 3-5 chunks for optimal performance."
+        ])
+
+    # Check 3: Context Window Truncation
+    elif rag_data.get("error") == "context_window_overflow" or (
         total_chunks_created >= top_k and chunks_in_prompt < top_k
     ):
         primary_issue = "context_window_overflow"
@@ -92,11 +121,11 @@ def generate_rag_diagnosis(
             "Upgrade to a model with a larger context window (e.g., Claude 3.5 Sonnet or Gemini 1.5 Pro)."
         ])
 
-    # Check 2: The Lost in the Middle Effect
+    # Check 4: The Lost in the Middle Effect
     else:
         low_importance_chunks = [
             c for c in chunks
-            if c.get("positional_weight", 0) < 0.4 and c.get("similarity_score", 0) > 0.7
+            if c.get("positional_weight", 0) < 0.3 and c.get("similarity_score", 0) > 0.7
         ]
 
         if low_importance_chunks:
@@ -110,10 +139,8 @@ def generate_rag_diagnosis(
                 "Use relevance-sorted retrieval rather than sequential insertion."
             ])
 
-    # Check 3: Token Economics / Overlap Waste
+    # Check 5: Token Economics / Overlap Waste
     if not actionable_steps:
-        overlap_ratio = extra_tokens / max(1, total_chunks_created * chunk_size)
-
         if overlap_ratio > 0.3:
             primary_issue = "high_token_redundancy"
             impact = "medium"
@@ -135,5 +162,6 @@ def generate_rag_diagnosis(
             "impact": impact,
             "short_summary": short_summary
         },
-        "actionable_steps": actionable_steps
+        "actionable_steps": actionable_steps,
+        "health_score": health_score
     }

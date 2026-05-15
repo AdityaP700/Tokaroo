@@ -77,6 +77,7 @@ class FinalDiagnosis(BaseModel):
 class OptimizationInsight(BaseModel):
     diagnosis: FinalDiagnosis
     actionable_steps: List[str]
+    health_score: Optional[int] = None
 
 class RagChunkResponse(BaseModel):
     model: str
