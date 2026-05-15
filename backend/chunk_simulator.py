@@ -8,7 +8,8 @@ def simulate_rag_pipeline(
     tokenizer_name: str,
     top_k: int,
     retrieval_strategy: str,
-    context_window: int
+    context_window: int,
+    original_text: str | None = None
 ) -> dict:
 
     if chunk_size <= overlap:
@@ -41,12 +42,28 @@ def simulate_rag_pipeline(
     total_chunked_tokens = sum(c["token_count"] for c in all_chunks)
     extra_tokens = max(0, total_chunked_tokens - total_tokens)
 
-    # Deterministic similarity model: earlier chunks are more relevant.
+    # Similarity model: prefer keyword overlap when original text available,
+    # otherwise fall back to deterministic position-based relevance.
     if total_chunks_created > 0:
-        similarity_denominator = max(1, total_chunks_created - 1)
-        for chunk in all_chunks:
-            normalized_position = (chunk["chunk_index"] - 1) / similarity_denominator
-            chunk["similarity_score"] = round(1.0 - (0.5 * normalized_position), 3)
+        if original_text:
+            # build a set of normalized words from the original text
+            orig_words = set(
+                w.lower() for w in original_text.split() if any(c.isalnum() for c in w)
+            )
+            for chunk in all_chunks:
+                chunk_text = decode_tokens(chunk["raw_tokens"], tokenizer_name).lower()
+                chunk_words = set(w for w in chunk_text.split() if any(c.isalnum() for c in w))
+                if len(chunk_words) == 0:
+                    overlap = 0.0
+                else:
+                    overlap = len(chunk_words & orig_words) / max(1, len(chunk_words))
+                # similarity in [0,1]
+                chunk["similarity_score"] = round(min(1.0, overlap), 3)
+        else:
+            similarity_denominator = max(1, total_chunks_created - 1)
+            for chunk in all_chunks:
+                normalized_position = (chunk["chunk_index"] - 1) / similarity_denominator
+                chunk["similarity_score"] = round(1.0 - (0.5 * normalized_position), 3)
 
     # 2. Retrieval Phase
     if retrieval_strategy == "relevance_sorted":
@@ -74,6 +91,7 @@ def simulate_rag_pipeline(
             "extra_tokens_due_to_overlap": extra_tokens,
             "chunks": [],
             "error": "context_window_overflow",
+            "attention_curve": [],
         }
 
     visible_positions = range(len(valid_chunks))
@@ -123,11 +141,12 @@ def simulate_rag_pipeline(
                 chunk["risk_level"] = "medium risk"
             else:
                 chunk["risk_level"] = "safe (high retention)"
-
+    # include attention curve for visualization (normalised positional weights)
     return {
         "total_original_tokens": total_tokens,
         "total_chunks_created": total_chunks_created,
         "chunks_in_prompt": len(valid_chunks),
         "extra_tokens_due_to_overlap": extra_tokens,
-        "chunks": valid_chunks
+        "chunks": valid_chunks,
+        "attention_curve": [round(w, 3) for w in positional_weights]
     }

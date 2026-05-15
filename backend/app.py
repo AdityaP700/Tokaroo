@@ -142,7 +142,8 @@ def simulate_rag(request: RagChunkRequest):
         tokenizer_name=config["tokenizer"],
         top_k=top_k,
         retrieval_strategy=retrieval_strategy,
-        context_window=config["context_window"]
+        context_window=config["context_window"],
+        original_text=request.text
     )
 
     # ---------------------------------------------------------

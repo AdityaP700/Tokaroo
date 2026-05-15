@@ -389,3 +389,45 @@ def test_simulate_rag_endpoint_defaults_optional_fields(monkeypatch):
     assert response.status_code == 200
     assert captured["top_k"] == 5
     assert captured["retrieval_strategy"] == "relevance_sorted"
+
+
+def test_reorder_simulation_reduces_lost_in_middle(monkeypatch):
+    # Config B scenario: 4 chunks, high similarity, middle attention collapse
+    monkeypatch.setattr(
+        app_module,
+        "run_rag_simulation",
+        lambda **kwargs: {
+            "total_original_tokens": 424,
+            "total_chunks_created": 4,
+            "chunks_in_prompt": 4,
+            "extra_tokens_due_to_overlap": 36,
+            "chunks": [
+                {"similarity_score": 0.99, "positional_weight": 0.5},
+                {"similarity_score": 0.98, "positional_weight": 0.119},
+                {"similarity_score": 0.97, "positional_weight": 0.154},
+                {"similarity_score": 1.0, "positional_weight": 1.0},
+            ],
+            "attention_curve": [0.5, 0.119, 0.154, 1.0],
+        },
+    )
+
+    response = client.post(
+        "/simulate-rag",
+        json={
+            "text": TEST_TEXT,
+            "model": "claude-sonnet-4-6",
+            "chunk_size": 106,
+            "overlap": 12,
+            "top_k": 4,
+            "retrieval_strategy": "relevance_sorted",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    reorder = data["optimization"].get("reorder_effect")
+    assert reorder is not None
+    assert reorder["lost_in_middle_before"] >= reorder["lost_in_middle_after"]
+    assert isinstance(reorder["after"], list)
+    # health score should include attention penalty (be < 100)
+    assert data["optimization"]["health_score"] < 100

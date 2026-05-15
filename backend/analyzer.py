@@ -51,6 +51,9 @@ def analyze_prompt_failure(token_count: int, context_window: int, attention_weig
     }
 
 
+from context_simulator import calculate_attention_weights
+
+
 def generate_rag_diagnosis(
     rag_data: dict,
     top_k: int,
@@ -67,20 +70,21 @@ def generate_rag_diagnosis(
     chunk_size = chunk_size or rag_data.get("chunk_size", 1) or 1
     overlap_ratio = extra_tokens / max(1, total_chunks_created * chunk_size)
 
+    issues: list[dict] = []
     primary_issue = "optimal"
     impact = "low"
     confidence = 0.95
     short_summary = "RAG pipeline is healthy and context utilization is optimal."
     actionable_steps: list[str] = []
-    health_score = 100.0
 
-    # Health score penalty model.
+    # Base health score penalties (attention penalty applied later)
+    health_score = 100
     health_score -= overlap_ratio * 40
     health_score -= max(0, total_chunks_created - 5) * 5
-    health_score = max(0, min(100, int(health_score)))
 
     # Check 1: Token Redundancy (Highest Priority)
     if overlap_ratio > 0.4:
+        issues.append({"type": "high_token_redundancy", "severity": "high"})
         primary_issue = "high_token_redundancy"
         impact = "high"
         confidence = 0.95
@@ -91,8 +95,11 @@ def generate_rag_diagnosis(
         ])
 
     # Check 2: Over-chunking (Too many fragments)
-    elif total_chunks_created > 10:
-        primary_issue = "over_chunking"
+    if total_chunks_created > 10:
+        # over-chunking can co-occur with redundancy; append rather than elif
+        issues.append({"type": "over_chunking", "severity": "high"})
+        if primary_issue == "optimal":
+            primary_issue = "over_chunking"
         impact = "high"
         confidence = 0.9
         short_summary = "Too many chunks created for given input size, causing fragmentation."
@@ -102,9 +109,10 @@ def generate_rag_diagnosis(
         ])
 
     # Check 3: Context Window Truncation
-    elif rag_data.get("error") == "context_window_overflow" or (
+    if rag_data.get("error") == "context_window_overflow" or (
         total_chunks_created >= top_k and chunks_in_prompt < top_k
     ):
+        issues.append({"type": "context_window_overflow", "severity": "critical"})
         primary_issue = "context_window_overflow"
         impact = "critical"
         confidence = 0.99
@@ -122,38 +130,130 @@ def generate_rag_diagnosis(
         ])
 
     # Check 4: The Lost in the Middle Effect
-    else:
-        low_importance_chunks = [
-            c for c in chunks
-            if c.get("positional_weight", 0) < 0.3 and c.get("similarity_score", 0) > 0.7
-        ]
+    # Lost in the middle detection
+    low_importance_chunks = [
+        c for c in chunks
+        if c.get("positional_weight", 0) < 0.3 and c.get("similarity_score", 0) > 0.7
+    ]
 
-        if low_importance_chunks:
+    if low_importance_chunks:
+        issues.append({"type": "lost_in_middle_decay", "severity": "medium"})
+        if primary_issue == "optimal":
             primary_issue = "lost_in_middle_decay"
-            impact = "high"
-            confidence = 0.88
-            short_summary = "High-relevance chunks are trapped in the middle of the prompt and will likely be ignored by the LLM."
-            actionable_steps.extend([
-                "Move critical chunks to the very end of the prompt (leverage recency bias).",
-                "Reduce total chunk count to 3-5 to flatten the attention curve.",
-                "Use relevance-sorted retrieval rather than sequential insertion."
-            ])
+        impact = "high"
+        confidence = 0.88
+        short_summary = "High-relevance chunks are trapped in the middle of the prompt and will likely be ignored by the LLM."
+        actionable_steps.extend([
+            "Move critical chunks to the very end of the prompt (leverage recency bias).",
+            "Reduce total chunk count to 3-5 to flatten the attention curve.",
+            "Use relevance-sorted retrieval rather than sequential insertion."
+        ])
 
     # Check 5: Token Economics / Overlap Waste
-    if not actionable_steps:
-        if overlap_ratio > 0.3:
+    # Secondary check: token economics
+    if overlap_ratio > 0.3 and not any(i["type"] == "high_token_redundancy" for i in issues):
+        issues.append({"type": "high_token_redundancy", "severity": "medium"})
+        if primary_issue == "optimal":
             primary_issue = "high_token_redundancy"
-            impact = "medium"
-            confidence = 0.92
-            short_summary = f"You are paying for {extra_tokens} duplicate tokens due to excessive chunk overlap."
-            actionable_steps.extend([
-                "Lower chunk overlap to 10-15% of your total chunk size.",
-                "Implement semantic chunking instead of blind character/token counts."
-            ])
+        impact = "medium"
+        confidence = 0.92
+        short_summary = f"You are paying for {extra_tokens} duplicate tokens due to excessive chunk overlap."
+        actionable_steps.extend([
+            "Lower chunk overlap to 10-15% of your total chunk size.",
+            "Implement semantic chunking instead of blind character/token counts."
+        ])
 
     # Success Case
     if not actionable_steps:
         actionable_steps.append("No changes needed. Keep building!")
+
+    # Recommended config heuristics
+    recommended_config: dict = {}
+    # If we created many chunks, suggest a larger chunk size
+    if total_chunks_created > 10 and rag_data.get("total_original_tokens", 0) > 0:
+        recommended_config["chunk_size"] = max(1, int(rag_data["total_original_tokens"] / 3))
+    else:
+        # default to current chunk size (if provided)
+        if chunk_size:
+            recommended_config["chunk_size"] = int(chunk_size)
+
+    # overlap recommendation
+    if overlap_ratio > 0.3 and chunk_size:
+        recommended_config["overlap"] = max(0, int(chunk_size * 0.15))
+
+    # top_k recommendation: keep it bounded
+    recommended_config["top_k"] = min(max(1, chunks_in_prompt or 1), 5)
+
+    # Dynamic chunk sizing suggestion
+    total_tokens = rag_data.get("total_original_tokens", 0)
+    suggested_chunk = None
+    if total_tokens > 0:
+        if total_tokens < 200:
+            suggested_chunk = total_tokens
+        elif total_tokens < 1000:
+            suggested_chunk = 250
+        else:
+            suggested_chunk = 500
+
+    # Ensure recommended_config includes the dynamic suggestion if available
+    if suggested_chunk is not None:
+        recommended_config["chunk_size"] = int(suggested_chunk)
+
+    # attention curve if available
+    attention_curve = rag_data.get("attention_curve") or [c.get("positional_weight", 0.0) for c in chunks]
+
+    # NEW: Attention penalty for lost-in-middle issues (balanced penalty)
+    if any(i.get("type") == "lost_in_middle_decay" for i in issues):
+        health_score -= 15
+
+    health_score = max(0, min(100, int(health_score)))
+
+    # Simulate chunk reordering to see if reordering by relevance (putting most relevant last)
+    def simulate_reorder_effect(rag: dict) -> dict:
+        orig_chunks = rag.get("chunks", [])
+        before_curve = rag.get("attention_curve") or [c.get("positional_weight", 0.0) for c in orig_chunks]
+
+        # create a shallow copy and sort so highest similarity ends up last
+        reordered = sorted(orig_chunks, key=lambda x: x.get("similarity_score", 0.0))
+
+        # recompute positional weights for the reordered set
+        n = len(reordered)
+        if n == 0:
+            return {
+                "before": before_curve,
+                "after": [],
+                "lost_in_middle_before": 0,
+                "lost_in_middle_after": 0,
+                "improves": False,
+            }
+
+        after_pos_weights = calculate_attention_weights(list(range(n)), decay_power=2.0, recency_strength=0.5)
+
+        # count lost-in-middle (positional_weight<0.3 and similarity>0.7)
+        lost_before = sum(1 for i, c in enumerate(orig_chunks) if (c.get("positional_weight", 0.0) < 0.3 and c.get("similarity_score", 0.0) > 0.7))
+        lost_after = sum(1 for i, c in enumerate(reordered) if (after_pos_weights[i] < 0.3 and c.get("similarity_score", 0.0) > 0.7))
+
+        return {
+            "before": before_curve,
+            "after": [round(w, 4) for w in after_pos_weights],
+            "lost_in_middle_before": lost_before,
+            "lost_in_middle_after": lost_after,
+            "improves": lost_after < lost_before,
+        }
+
+    # Skip reorder analysis for small numbers of chunks (ordering won't change positional weights meaningfully)
+    if len(chunks) < 5:
+        reorder_effect = {
+            "skipped": True,
+            "reason": "too few chunks to make reordering meaningful",
+            "before": attention_curve,
+            "after": attention_curve,
+            "lost_in_middle_before": sum(1 for c in chunks if (c.get("positional_weight", 0.0) < 0.3 and c.get("similarity_score", 0.0) > 0.7)),
+            "lost_in_middle_after": sum(1 for c in chunks if (c.get("positional_weight", 0.0) < 0.3 and c.get("similarity_score", 0.0) > 0.7)),
+            "improves": False,
+        }
+    else:
+        reorder_effect = simulate_reorder_effect(rag_data)
 
     return {
         "diagnosis": {
@@ -162,6 +262,10 @@ def generate_rag_diagnosis(
             "impact": impact,
             "short_summary": short_summary
         },
+        "issues": issues,
         "actionable_steps": actionable_steps,
-        "health_score": health_score
+        "health_score": health_score,
+        "recommended_config": recommended_config,
+        "attention_curve": attention_curve,
+        "reorder_effect": reorder_effect,
     }

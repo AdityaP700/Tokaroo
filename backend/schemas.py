@@ -1,5 +1,5 @@
 from pydantic import BaseModel,Field
-from typing import List,Optional,Dict
+from typing import List,Optional,Dict,Any
 
 class SimulateRequest(BaseModel):
     text: str
@@ -75,7 +75,17 @@ class FinalDiagnosis(BaseModel):
 
 
 class OptimizationInsight(BaseModel):
+    # Keep a primary human-friendly diagnosis for backward compatibility
     diagnosis: FinalDiagnosis
+    # New: capture multiple simultaneous issues
+    issues: Optional[List[Dict[str, str]]] = None
+    # Recommended runtime config to autotune the RAG pipeline
+    recommended_config: Optional[Dict[str, int]] = None
+    # (Deprecated) single-field chunk size removed — use `recommended_config['chunk_size']` instead
+    # Attention curve for visualization (sequence of weights)
+    attention_curve: Optional[List[float]] = None
+    # Effects of simulating chunk reordering (before/after comparison)
+    reorder_effect: Optional[Dict[str, Any]] = None
     actionable_steps: List[str]
     health_score: Optional[int] = None
 
