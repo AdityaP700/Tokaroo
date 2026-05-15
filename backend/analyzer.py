@@ -51,13 +51,20 @@ def analyze_prompt_failure(token_count: int, context_window: int, attention_weig
     }
 
 
-def generate_rag_diagnosis(rag_data: dict, top_k: int, retrieval_strategy: str) -> dict:
+def generate_rag_diagnosis(
+    rag_data: dict,
+    top_k: int,
+    retrieval_strategy: str,
+    chunk_size: int | None = None,
+) -> dict:
     """
     Evaluates chunking metrics to generate a definitive diagnosis and actionable steps.
     """
     chunks = rag_data.get("chunks", [])
+    total_chunks_created = rag_data.get("total_chunks_created", 0)
     chunks_in_prompt = rag_data.get("chunks_in_prompt", 0)
     extra_tokens = rag_data.get("extra_tokens_due_to_overlap", 0)
+    chunk_size = chunk_size or rag_data.get("chunk_size", 1) or 1
 
     primary_issue = "optimal"
     impact = "low"
@@ -66,14 +73,19 @@ def generate_rag_diagnosis(rag_data: dict, top_k: int, retrieval_strategy: str) 
     actionable_steps: list[str] = []
 
     # Check 1: Context Window Truncation (Highest Impact)
-    if chunks_in_prompt < top_k:
+    if rag_data.get("error") == "context_window_overflow" or (
+        total_chunks_created >= top_k and chunks_in_prompt < top_k
+    ):
         primary_issue = "context_window_overflow"
         impact = "critical"
         confidence = 0.99
-        short_summary = (
-            f"Prompt limit exceeded. Vector DB retrieved {top_k} chunks, "
-            f"but only {chunks_in_prompt} fit."
-        )
+        if chunks_in_prompt == 0:
+            short_summary = "No retrieved chunks fit within the model context window."
+        else:
+            short_summary = (
+                f"Prompt limit exceeded. Vector DB retrieved {top_k} chunks, "
+                f"but only {chunks_in_prompt} fit."
+            )
         actionable_steps.extend([
             "Reduce the chunk size to fit more unique documents.",
             "Lower the Top-K retrieval limit in your Vector DB.",
@@ -81,27 +93,36 @@ def generate_rag_diagnosis(rag_data: dict, top_k: int, retrieval_strategy: str) 
         ])
 
     # Check 2: The Lost in the Middle Effect
-    elif any(c.get("risk_level", "").startswith("critical") for c in chunks):
-        primary_issue = "lost_in_middle_decay"
-        impact = "high"
-        confidence = 0.88
-        short_summary = "High-relevance chunks are trapped in the middle of the prompt and will likely be ignored by the LLM."
-        actionable_steps.extend([
-            "Move critical chunks to the very end of the prompt (leverage recency bias).",
-            "Reduce total chunk count to 3-5 to flatten the attention curve.",
-            "Use relevance-sorted retrieval rather than sequential insertion."
-        ])
+    else:
+        low_importance_chunks = [
+            c for c in chunks
+            if c.get("positional_weight", 0) < 0.4 and c.get("similarity_score", 0) > 0.7
+        ]
+
+        if low_importance_chunks:
+            primary_issue = "lost_in_middle_decay"
+            impact = "high"
+            confidence = 0.88
+            short_summary = "High-relevance chunks are trapped in the middle of the prompt and will likely be ignored by the LLM."
+            actionable_steps.extend([
+                "Move critical chunks to the very end of the prompt (leverage recency bias).",
+                "Reduce total chunk count to 3-5 to flatten the attention curve.",
+                "Use relevance-sorted retrieval rather than sequential insertion."
+            ])
 
     # Check 3: Token Economics / Overlap Waste
-    elif extra_tokens > (rag_data.get("total_original_tokens", 1) * 0.4):
-        primary_issue = "high_token_redundancy"
-        impact = "medium"
-        confidence = 0.92
-        short_summary = f"You are paying for {extra_tokens} duplicate tokens due to excessive chunk overlap."
-        actionable_steps.extend([
-            "Lower chunk overlap to 10-15% of your total chunk size.",
-            "Implement semantic chunking instead of blind character/token counts."
-        ])
+    if not actionable_steps:
+        overlap_ratio = extra_tokens / max(1, total_chunks_created * chunk_size)
+
+        if overlap_ratio > 0.3:
+            primary_issue = "high_token_redundancy"
+            impact = "medium"
+            confidence = 0.92
+            short_summary = f"You are paying for {extra_tokens} duplicate tokens due to excessive chunk overlap."
+            actionable_steps.extend([
+                "Lower chunk overlap to 10-15% of your total chunk size.",
+                "Implement semantic chunking instead of blind character/token counts."
+            ])
 
     # Success Case
     if not actionable_steps:

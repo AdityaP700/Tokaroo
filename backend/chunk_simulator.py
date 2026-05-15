@@ -1,4 +1,3 @@
-import random
 from tokenizer_engine import decode_tokens
 from context_simulator import calculate_attention_weights
 
@@ -31,8 +30,6 @@ def simulate_rag_pipeline(
             "end_token": end,
             "token_count": len(chunk_tokens),
             "raw_tokens": chunk_tokens,
-            # Simulating Vector DB Cosine Similarity (0.4 to 0.99)
-            "similarity_score": round(random.uniform(0.4, 0.99), 3)
         })
 
         start += (chunk_size - overlap)
@@ -43,6 +40,13 @@ def simulate_rag_pipeline(
     # Calculate exact token waste
     total_chunked_tokens = sum(c["token_count"] for c in all_chunks)
     extra_tokens = max(0, total_chunked_tokens - total_tokens)
+
+    # Deterministic similarity model: earlier chunks are more relevant.
+    if total_chunks_created > 0:
+        similarity_denominator = max(1, total_chunks_created - 1)
+        for chunk in all_chunks:
+            normalized_position = (chunk["chunk_index"] - 1) / similarity_denominator
+            chunk["similarity_score"] = round(1.0 - (0.5 * normalized_position), 3)
 
     # 2. Retrieval Phase
     if retrieval_strategy == "relevance_sorted":
@@ -63,10 +67,18 @@ def simulate_rag_pipeline(
 
     # 3. Prompt Injection Phase (Positional Attention)
     if not valid_chunks:
-        return {"error": "No chunks fit in context window."}
+        return {
+            "total_original_tokens": total_tokens,
+            "total_chunks_created": total_chunks_created,
+            "chunks_in_prompt": 0,
+            "extra_tokens_due_to_overlap": extra_tokens,
+            "chunks": [],
+            "error": "context_window_overflow",
+        }
 
+    visible_positions = range(len(valid_chunks))
     positional_weights = calculate_attention_weights(
-        visible_tokens=range(len(valid_chunks)),
+        visible_tokens=visible_positions,
         decay_power=2.0,
         recency_strength=0.5
     )
@@ -89,6 +101,17 @@ def simulate_rag_pipeline(
         min_imp = min(final_importances)
         max_imp = max(final_importances)
         range_imp = max_imp - min_imp
+
+        if len(valid_chunks) == 1 or range_imp == 0:
+            for chunk in valid_chunks:
+                chunk["risk_level"] = "safe (high retention)"
+            return {
+                "total_original_tokens": total_tokens,
+                "total_chunks_created": total_chunks_created,
+                "chunks_in_prompt": len(valid_chunks),
+                "extra_tokens_due_to_overlap": extra_tokens,
+                "chunks": valid_chunks
+            }
 
         thresh_critical = min_imp + (0.3 * range_imp)
         thresh_medium = min_imp + (0.6 * range_imp)

@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 import app as app_module
 from analyzer import analyze_prompt_failure, generate_rag_diagnosis
 from app import app
+from chunk_simulator import simulate_rag_pipeline
 from model_config import SUPPORTED_MODELS
 
 client = TestClient(app)
@@ -138,6 +139,7 @@ def test_analyze_prompt_failure_returns_healthy_state():
 def test_generate_rag_diagnosis_flags_context_window_overflow():
     rag_data = {
         "total_original_tokens": 1000,
+        "total_chunks_created": 8,
         "chunks_in_prompt": 3,
         "extra_tokens_due_to_overlap": 40,
         "chunks": [],
@@ -150,18 +152,40 @@ def test_generate_rag_diagnosis_flags_context_window_overflow():
     assert len(diagnosis["actionable_steps"]) >= 3
 
 
-def test_generate_rag_diagnosis_flags_middle_decay():
+def test_generate_rag_diagnosis_keeps_small_inputs_optimal():
     rag_data = {
-        "total_original_tokens": 500,
-        "chunks_in_prompt": 5,
-        "extra_tokens_due_to_overlap": 10,
+        "total_original_tokens": 2,
+        "total_chunks_created": 1,
+        "chunks_in_prompt": 1,
+        "extra_tokens_due_to_overlap": 0,
         "chunks": [
-            {"risk_level": "safe (high retention)"},
-            {"risk_level": "critical (low position + low relevance)"},
+            {
+                "similarity_score": 1.0,
+                "positional_weight": 1.0,
+            }
         ],
     }
 
-    diagnosis = generate_rag_diagnosis(rag_data, top_k=3, retrieval_strategy="relevance_sorted")
+    diagnosis = generate_rag_diagnosis(rag_data, top_k=3, retrieval_strategy="relevance_sorted", chunk_size=10)
+
+    assert diagnosis["diagnosis"]["primary_issue"] == "optimal"
+    assert diagnosis["diagnosis"]["impact"] == "low"
+    assert diagnosis["actionable_steps"] == ["No changes needed. Keep building!"]
+
+
+def test_generate_rag_diagnosis_flags_middle_decay():
+    rag_data = {
+        "total_original_tokens": 500,
+        "total_chunks_created": 3,
+        "chunks_in_prompt": 5,
+        "extra_tokens_due_to_overlap": 10,
+        "chunks": [
+            {"similarity_score": 0.9, "positional_weight": 0.9},
+            {"similarity_score": 0.85, "positional_weight": 0.25},
+        ],
+    }
+
+    diagnosis = generate_rag_diagnosis(rag_data, top_k=3, retrieval_strategy="relevance_sorted", chunk_size=20)
 
     assert diagnosis["diagnosis"]["primary_issue"] == "lost_in_middle_decay"
     assert diagnosis["diagnosis"]["impact"] == "high"
@@ -171,16 +195,33 @@ def test_generate_rag_diagnosis_flags_middle_decay():
 def test_generate_rag_diagnosis_flags_token_redundancy():
     rag_data = {
         "total_original_tokens": 100,
+        "total_chunks_created": 5,
         "chunks_in_prompt": 5,
         "extra_tokens_due_to_overlap": 60,
-        "chunks": [{"risk_level": "safe (high retention)"}],
+        "chunks": [{"similarity_score": 0.8, "positional_weight": 0.9}],
     }
 
-    diagnosis = generate_rag_diagnosis(rag_data, top_k=5, retrieval_strategy="sequential")
+    diagnosis = generate_rag_diagnosis(rag_data, top_k=5, retrieval_strategy="sequential", chunk_size=30)
 
     assert diagnosis["diagnosis"]["primary_issue"] == "high_token_redundancy"
     assert diagnosis["diagnosis"]["impact"] == "medium"
     assert any("overlap" in step.lower() for step in diagnosis["actionable_steps"])
+
+
+def test_simulate_rag_pipeline_marks_single_chunk_safe():
+    result = simulate_rag_pipeline(
+        token_ids=[1, 2],
+        chunk_size=10,
+        overlap=0,
+        tokenizer_name="cl100k_base",
+        top_k=3,
+        retrieval_strategy="relevance_sorted",
+        context_window=100,
+    )
+
+    assert result["chunks_in_prompt"] == 1
+    assert result["chunks"][0]["risk_level"] == "safe (high retention)"
+    assert result["chunks"][0]["similarity_score"] == 1.0
 
 
 def test_simulate_rag_endpoint_returns_structured_optimization(monkeypatch):
@@ -228,6 +269,38 @@ def test_simulate_rag_endpoint_returns_structured_optimization(monkeypatch):
     assert len(data["chunks"]) == 1
 
 
+def test_simulate_rag_endpoint_returns_structured_overflow(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "run_rag_simulation",
+        lambda **kwargs: {
+            "total_original_tokens": 500,
+            "total_chunks_created": 6,
+            "chunks_in_prompt": 0,
+            "extra_tokens_due_to_overlap": 30,
+            "chunks": [],
+            "error": "context_window_overflow",
+        },
+    )
+
+    response = client.post(
+        "/simulate-rag",
+        json={
+            "text": LONG_TEXT,
+            "model": "claude-sonnet-4-6",
+            "chunk_size": 16,
+            "overlap": 4,
+            "top_k": 5,
+            "retrieval_strategy": "relevance_sorted",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["error"] == "context_window_overflow"
+    assert data["optimization"]["diagnosis"]["primary_issue"] == "context_window_overflow"
+
+
 def test_simulate_rag_endpoint_rejects_invalid_overlap():
     response = client.post(
         "/simulate-rag",
@@ -247,7 +320,14 @@ def test_simulate_rag_endpoint_rejects_no_fit_result(monkeypatch):
     monkeypatch.setattr(
         app_module,
         "run_rag_simulation",
-        lambda **kwargs: {"error": "No chunks fit in context window."},
+        lambda **kwargs: {
+            "total_original_tokens": 12,
+            "total_chunks_created": 1,
+            "chunks_in_prompt": 0,
+            "extra_tokens_due_to_overlap": 0,
+            "chunks": [],
+            "error": "context_window_overflow",
+        },
     )
 
     response = client.post(
@@ -260,8 +340,8 @@ def test_simulate_rag_endpoint_rejects_no_fit_result(monkeypatch):
         },
     )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "No chunks fit in context window."
+    assert response.status_code == 200
+    assert response.json()["error"] == "context_window_overflow"
 
 
 def test_simulate_rag_endpoint_defaults_optional_fields(monkeypatch):

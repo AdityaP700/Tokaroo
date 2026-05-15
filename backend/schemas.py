@@ -84,5 +84,6 @@ class RagChunkResponse(BaseModel):
     total_chunks_created: int
     chunks_in_prompt: int
     extra_tokens_due_to_overlap: int
+    error: Optional[str] = None
     optimization: OptimizationInsight
     chunks: List[ChunkDetail]

@@ -148,10 +148,7 @@ def simulate_rag(request: RagChunkRequest):
     # ---------------------------------------------------------
     # FINAL DIAGNOSIS LAYER
     # ---------------------------------------------------------
-    if "error" in rag_data:
-        raise HTTPException(status_code=400, detail=rag_data["error"])
-
-    insights = generate_rag_diagnosis(rag_data, top_k, retrieval_strategy)
+    insights = generate_rag_diagnosis(rag_data, top_k, retrieval_strategy, request.chunk_size)
 
     return RagChunkResponse(
         model=request.model,
@@ -159,6 +156,7 @@ def simulate_rag(request: RagChunkRequest):
         total_chunks_created=rag_data["total_chunks_created"],
         chunks_in_prompt=rag_data["chunks_in_prompt"],
         extra_tokens_due_to_overlap=rag_data["extra_tokens_due_to_overlap"],
+        error=rag_data.get("error"),
         optimization=insights,
         chunks=rag_data["chunks"]
     )
