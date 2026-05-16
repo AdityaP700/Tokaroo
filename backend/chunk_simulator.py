@@ -4,10 +4,11 @@ from tokenizer_engine import decode_tokens
 from context_simulator import calculate_attention_weights
 
 WORD_PATTERN = re.compile(r"[A-Za-z0-9]+")
+_EMBEDDING_MODEL = None
 
 
 @lru_cache(maxsize=1)
-def _get_sentence_embedding_model():
+def _load_default_sentence_embedding_model():
     try:
         from sentence_transformers import SentenceTransformer
 
@@ -16,12 +17,24 @@ def _get_sentence_embedding_model():
         return None
 
 
+def set_sentence_embedding_model(model) -> None:
+    global _EMBEDDING_MODEL
+    _EMBEDDING_MODEL = model
+
+
+def get_sentence_embedding_model():
+    if _EMBEDDING_MODEL is not None:
+        return _EMBEDDING_MODEL
+
+    return _load_default_sentence_embedding_model()
+
+
 def _normalized_words(text: str) -> set[str]:
     return {match.group(0).lower() for match in WORD_PATTERN.finditer(text)}
 
 
 def _encode_texts(texts: list[str]):
-    model = _get_sentence_embedding_model()
+    model = get_sentence_embedding_model()
     if model is None:
         return None
 

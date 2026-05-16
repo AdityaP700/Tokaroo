@@ -5,8 +5,18 @@ from tokenizer_engine import get_tokens
 from context_simulator import calculate_attention_weights
 from analyzer import analyze_prompt_failure, generate_rag_diagnosis
 from typing import Dict
-from chunk_simulator import simulate_rag_pipeline as run_rag_simulation
+from chunk_simulator import (
+    simulate_rag_pipeline as run_rag_simulation,
+    _load_default_sentence_embedding_model,
+    set_sentence_embedding_model,
+)
 app = FastAPI(title="Tokaroo API")
+
+
+@app.on_event("startup")
+def load_embedding_model():
+    model = _load_default_sentence_embedding_model()
+    set_sentence_embedding_model(model)
 
 
 @app.get("/")
