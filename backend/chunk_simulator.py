@@ -180,10 +180,14 @@ def simulate_rag_pipeline(
         chunk["used_by_model"] = positional_weights[i] > 0.3
         chunk["lost_reason"] = None
 
-        if chunk["similarity_score"] < 0.4:
-            chunk["lost_reason"] = "low_relevance"
-        elif chunk["similarity_score"] > 0.6 and positional_weights[i] < 0.3:
-            chunk["lost_reason"] = "lost_in_middle"
+        if chunk["used_by_model"]:
+            if chunk["similarity_score"] < 0.4 and positional_weights[i] > 0.8:
+                chunk["lost_reason"] = "position_bias"
+        else:
+            if chunk["similarity_score"] > 0.6 and positional_weights[i] < 0.3:
+                chunk["lost_reason"] = "lost_in_middle"
+            elif chunk["similarity_score"] < 0.4:
+                chunk["lost_reason"] = "low_relevance"
 
         chunk["final_importance"] = round(chunk["similarity_score"] * chunk["positional_weight"], 3)
         final_importances.append(chunk["final_importance"])

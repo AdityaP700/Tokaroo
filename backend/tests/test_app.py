@@ -273,8 +273,33 @@ def test_simulate_rag_pipeline_adds_chunk_traceability(monkeypatch):
     assert result["chunks"][0]["relevance_score"] == result["chunks"][0]["similarity_score"]
     assert result["chunks"][0]["attention_weight"] == result["chunks"][0]["positional_weight"]
     assert result["chunks"][0]["used_by_model"] is True
-    assert result["chunks"][1]["lost_reason"] in {"low_relevance", "lost_in_middle"}
-    assert result["chunks"][2]["lost_reason"] in {"low_relevance", "lost_in_middle"}
+    assert result["chunks"][1]["lost_reason"] in {"low_relevance", "lost_in_middle", "position_bias"}
+    assert result["chunks"][2]["lost_reason"] in {"low_relevance", "lost_in_middle", "position_bias"}
+
+
+def test_simulate_rag_pipeline_flags_used_but_low_relevance_chunk_as_position_bias(monkeypatch):
+    def fake_decode_tokens(tokens, tokenizer_name):
+        return "unrelated text"
+
+    monkeypatch.setattr(chunk_simulator, "decode_tokens", fake_decode_tokens)
+
+    result = simulate_rag_pipeline(
+        token_ids=[1],
+        chunk_size=1,
+        query="cats",
+        overlap=0,
+        tokenizer_name="cl100k_base",
+        top_k=1,
+        final_k=1,
+        retrieval_strategy="relevance_sorted",
+        context_window=100,
+        original_text="unrelated text",
+    )
+
+    assert result["chunks"][0]["used_by_model"] is True
+    assert result["chunks"][0]["attention_weight"] == 1.0
+    assert result["chunks"][0]["similarity_score"] < 0.4
+    assert result["chunks"][0]["lost_reason"] == "position_bias"
 
 
 def test_simulate_rag_endpoint_returns_structured_optimization(monkeypatch):
