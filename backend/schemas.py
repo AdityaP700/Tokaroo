@@ -50,9 +50,11 @@ class CompareResponse(BaseModel):
 class RagChunkRequest(BaseModel):
     text: str
     model: str
+    query: Optional[str] = None
     chunk_size: int
     overlap: int
     top_k: Optional[int] = Field(default=5, description="Number of chunks retrieved by Vector DB")
+    final_k: Optional[int] = Field(default=4, ge=1, description="Number of chunks kept after reranking")
     retrieval_strategy: Optional[str] = Field(default="relevance_sorted", description="'sequential' or 'relevance_sorted'")
 
 class ChunkDetail(BaseModel):

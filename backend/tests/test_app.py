@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 import app as app_module
 from analyzer import analyze_prompt_failure, generate_rag_diagnosis
 from app import app
+import chunk_simulator
 from chunk_simulator import simulate_rag_pipeline
 from model_config import SUPPORTED_MODELS
 
@@ -389,6 +390,77 @@ def test_simulate_rag_endpoint_defaults_optional_fields(monkeypatch):
     assert response.status_code == 200
     assert captured["top_k"] == 5
     assert captured["retrieval_strategy"] == "relevance_sorted"
+
+
+def test_simulate_rag_pipeline_reranks_with_query(monkeypatch):
+    class DummyModel:
+        def encode(self, texts, convert_to_numpy=True, normalize_embeddings=True):
+            if isinstance(texts, str):
+                texts = [texts]
+
+            vectors = []
+            for text in texts:
+                lowered = text.lower()
+                if "cats" in lowered:
+                    vectors.append([1.0, 0.0])
+                elif "dogs" in lowered:
+                    vectors.append([0.0, 1.0])
+                else:
+                    vectors.append([0.5, 0.5])
+
+            return __import__("numpy").array(vectors, dtype=float)
+
+    monkeypatch.setattr(chunk_simulator, "_get_sentence_embedding_model", lambda: DummyModel())
+
+    result = simulate_rag_pipeline(
+        token_ids=[1, 2, 3, 4],
+        chunk_size=2,
+        query="cats",
+        overlap=0,
+        tokenizer_name="cl100k_base",
+        top_k=2,
+        final_k=1,
+        retrieval_strategy="relevance_sorted",
+        context_window=100,
+        original_text="cats dogs",
+    )
+
+    assert result["chunks_in_prompt"] == 1
+    assert result["chunks"][0]["similarity_score"] >= 0.9
+
+
+def test_simulate_rag_endpoint_accepts_query_and_final_k(monkeypatch):
+    captured = {}
+
+    def fake_run_rag_simulation(**kwargs):
+        captured.update(kwargs)
+        return {
+            "total_original_tokens": 50,
+            "total_chunks_created": 2,
+            "chunks_in_prompt": 1,
+            "extra_tokens_due_to_overlap": 5,
+            "chunks": [],
+            "attention_curve": [],
+        }
+
+    monkeypatch.setattr(app_module, "run_rag_simulation", fake_run_rag_simulation)
+
+    response = client.post(
+        "/simulate-rag",
+        json={
+            "text": TEST_TEXT,
+            "query": "agricultural intelligence",
+            "model": "claude-sonnet-4-6",
+            "chunk_size": 20,
+            "overlap": 4,
+            "top_k": 6,
+            "final_k": 2,
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["query"] == "agricultural intelligence"
+    assert captured["final_k"] == 2
 
 
 def test_reorder_simulation_reduces_lost_in_middle(monkeypatch):

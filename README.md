@@ -1,137 +1,127 @@
-# Tokaroo
+# Tokaroo — Debug why your RAG fails
 
-Tokaroo is a Python project for understanding how language models handle tokenization, context windows, truncation, attention decay, and retrieval-augmented generation (RAG). It started as a token simulator and now includes a structured backend that analyzes prompt failure modes and RAG configuration issues.
+Tokaroo is a lightweight toolkit that helps you understand *why* Retrieval-Augmented Generation (RAG) systems fail — even when retrieval looks correct.
 
-## Project summary
+It simulates how chunks are selected, positioned, and processed by an LLM, exposing issues like:
+- lost-in-the-middle attention decay
+- token redundancy from overlap
+- context window inefficiencies
 
-Tokaroo is built to make LLM behavior easier to inspect and reason about. The system now:
+Instead of guessing configs, Tokaroo shows you what the model actually “pays attention to”.
 
-- simulates RAG pipelines
-- analyzes attention behavior
-- detects configuration issues
-- produces structured diagnosis output for prompt and chunking problems
+How it works (intuition)
+------------------------
+Text → Chunking → Retrieval → Prompt Assembly → Attention Simulation → Diagnosis → Recommendation
 
-The project is useful for debugging prompts, evaluating chunking strategies, comparing model behavior, and explaining why context gets lost or degraded.
+Why this matters
+---------------
+Even when retrieval returns highly relevant chunks, LLMs often ignore information in the middle of the prompt due to attention bias.
 
-## What it currently does
+This leads to:
+- incomplete answers
+- missing key context
+- hallucinations despite correct retrieval
 
-### Context simulation
-- tokenizes text using model-specific tokenizers
-- simulates model context-window limits
-- shows what fits and what gets truncated
-- estimates prompt cost by model
-- analyzes attention decay across visible tokens
+Tokaroo helps you diagnose whether the problem is:
+- retrieval (chunking, overlap, top_k), or
+- model behavior (attention decay, recency bias)
 
-### RAG simulation
-- splits input into overlapping chunks
-- simulates retrieval using Top-K selection
-- applies positional attention to chunks
-- computes chunk importance and risk signals
-- returns a structured diagnosis with actionable recommendations
-- detects overflow, over-chunking, and redundancy patterns
+What Tokaroo gives you (plain)
+--------------------------------
+- A simulated RAG pipeline: chunking, retrieval, placement into a prompt, and a simple attention model.
+- A structured diagnosis with:
+    - `issues`: a short list of detected problems (can be more than one),
+    - `health_score`: a 0–100 indicator of how healthy the configuration is,
+    - `recommended_config`: quick tunable suggestions to try,
+    - `attention_curve`: numbers you can plot to visualize what the model favors,
+    - `reorder_effect`: a light simulation that tests whether moving important chunks to the end helps.
 
-### Prompt failure analysis
-- identifies truncation risk
-- detects lost-in-the-middle effects
-- reports attention distribution issues
-- summarizes failure mode, impact, and confidence
+Easy examples you tried
+-----------------------
+- Config A (bad): `chunk_size=80`, `overlap=60` → huge duplication and cost.
+- Config B (balanced): `chunk_size=106`, `overlap=12` → efficient configuration, but often still `lost_in_middle_decay` because the model ignores middle chunks.
 
-## Current backend endpoints
-
-### `GET /`
-Health check.
-
-### `POST /simulate`
-Simulates tokenization and context-window behavior for a single prompt.
-
-### `POST /compare`
-Compares tokenization and cost across supported models.
-
-### `POST /simulate-rag`
-Simulates chunking, retrieval, positional attention, and structured RAG diagnosis.
-
-## Example RAG diagnosis output
-
-The RAG endpoint returns a structured response that includes:
-
-- `diagnosis.primary_issue`
-- `diagnosis.confidence`
-- `diagnosis.impact`
-- `diagnosis.short_summary`
-- `actionable_steps`
-- `health_score`
-
-This makes the result easier to consume in a UI, in Insomnia, or in automated tests.
-
-## Repository structure
-
-```text
-tokaroo/
-├── backend/
-│   ├── app.py
-│   ├── analyzer.py
-│   ├── chunk_simulator.py
-│   ├── context_simulator.py
-│   ├── model_config.py
-│   ├── schemas.py
-│   ├── tokenizer_engine.py
-│   ├── requirements.txt
-│   └── tests/
-└── frontend/
-    ├── src/
-    ├── public/
-    ├── package.json
-    └── vite.config.ts
+Example output (simplified)
+---------------------------
+```json
+{
+    "issues": ["lost_in_middle_decay"],
+    "health_score": 81,
+    "attention_curve": [0.5, 0.12, 0.15, 1.0]
+}
 ```
 
-## Backend setup
+Interpretation:
 
-```bash
+middle chunks (~0.12, ~0.15) are effectively ignored
+last chunk dominates due to recency bias
+
+What to try next
+-----------------
+- If `high_token_redundancy` appears: reduce overlap.
+- If `over_chunking` appears: increase chunk size or reduce chunk count.
+- If `lost_in_middle_decay` appears: consider reordering important chunks toward the end, summarizing middle chunks, or reranking retrieved chunks.
+
+Developer notes (short)
+-----------------------
+- Similarity is currently a simple keyword-overlap when original text is available (fast and interpretable). It can be replaced with embeddings later.
+- The attention model is intentionally deterministic to make results repeatable and easy to reason about.
+- The diagnosis returns multiple issues so you can see combined failure modes.
+
+Key insights from this project
+-----------------------------
+- RAG failures are often caused by attention allocation, not retrieval quality
+- More chunks ≠ better performance
+- Even well-tuned chunking cannot fully eliminate attention bias
+- Position of information in the prompt significantly affects model output
+
+Potential improvements:
+- lightweight frontend to visualize attention curves
+- embedding-based similarity instead of keyword overlap
+- smarter reranking strategies
+
+Quick start (backend)
+---------------------
+From the project root:
+
+```powershell
 cd backend
+# optional: activate venv
+# .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+uvicorn app:app --reload --port 8000
 ```
 
-To run the API during development, use the project’s FastAPI entry point from the backend environment.
-
-## Frontend setup
+Try a RAG simulation (example using `curl`):
 
 ```bash
-cd frontend
-npm install
-npm run dev
+curl -sS -X POST "http://127.0.0.1:8000/simulate-rag" \
+        -H "Content-Type: application/json" \
+        -d '{"text":"Your long text here...", "model":"claude-sonnet-4-6", "chunk_size":106, "overlap":12, "top_k":4}'
 ```
 
-## Testing
+What to look for in the JSON
+----------------------------
+- `optimization.issues` — list of problems found
+- `optimization.health_score` — simple 0–100 score
+- `optimization.recommended_config` — small settings to try next
+- `optimization.attention_curve` — small list you can plot
+- `optimization.reorder_effect` — shows before/after and whether reordering helps
 
-The backend includes endpoint and regression coverage for:
+Testing
+-------
+- Backend tests are in `backend/tests/`. Run them from the `backend` folder with `pytest -q`.
 
-- `/simulate`
-- `/compare`
-- `/simulate-rag`
-- prompt failure analysis logic
-- RAG diagnosis logic
-- edge cases such as empty inputs, invalid models, and overflow handling
+Want help or improvements?
+-------------------------
+- I can add a tiny frontend that plots `attention_curve` and highlights ignored chunks.
+- I can add more reordering heuristics or run a small experiment that summarizes middle chunks instead of reordering.
 
-For local validation, use the backend virtual environment included in the repository.
-
-## What we found so far
-
-Tokaroo has shown a few useful patterns that matter in real prompt engineering work:
-
-- small inputs should not be mislabeled as overflow
-- derived labels like `risk_level` can create circular logic if used as diagnosis inputs
-- overlap waste should be measured relative to chunking scale, not only raw token totals
-- single-chunk prompts should not be treated as critical by default
-- deterministic chunk scoring makes the simulator easier to test and trust
-
-## Notes on the simulator
-
-The current implementation is intentionally educational and diagnostic. It is not a production retrieval system, but it does model the kinds of failures teams run into when prompt size, chunk size, overlap, and retrieval order are poorly balanced.
-
-## Author
-
+Author
+------
 AdityaP700
 
-## License
-
+License
+-------
 MIT
+

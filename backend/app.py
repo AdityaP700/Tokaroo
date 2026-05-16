@@ -138,9 +138,11 @@ def simulate_rag(request: RagChunkRequest):
     rag_data = run_rag_simulation(
         token_ids=token_ids,
         chunk_size=request.chunk_size,
+        query=request.query or request.text,
         overlap=request.overlap,
         tokenizer_name=config["tokenizer"],
         top_k=top_k,
+        final_k=request.final_k,
         retrieval_strategy=retrieval_strategy,
         context_window=config["context_window"],
         original_text=request.text
