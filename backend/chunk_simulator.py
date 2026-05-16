@@ -175,6 +175,16 @@ def simulate_rag_pipeline(
     final_importances = []
     for i, chunk in enumerate(valid_chunks):
         chunk["positional_weight"] = positional_weights[i]
+        chunk["relevance_score"] = chunk["similarity_score"]
+        chunk["attention_weight"] = positional_weights[i]
+        chunk["used_by_model"] = positional_weights[i] > 0.3
+        chunk["lost_reason"] = None
+
+        if chunk["similarity_score"] < 0.4:
+            chunk["lost_reason"] = "low_relevance"
+        elif chunk["similarity_score"] > 0.6 and positional_weights[i] < 0.3:
+            chunk["lost_reason"] = "lost_in_middle"
+
         chunk["final_importance"] = round(chunk["similarity_score"] * chunk["positional_weight"], 3)
         final_importances.append(chunk["final_importance"])
 

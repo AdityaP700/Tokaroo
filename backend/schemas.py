@@ -60,9 +60,13 @@ class RagChunkRequest(BaseModel):
 class ChunkDetail(BaseModel):
     chunk_index: int
     similarity_score: float      # Fake Vector DB relevance
+    relevance_score: Optional[float] = None
     positional_weight: float     # U-shape curve weight
+    attention_weight: Optional[float] = None
     final_importance: float      # Combined metric
     risk_level: str
+    used_by_model: Optional[bool] = None
+    lost_reason: Optional[str] = None
     start_token: int
     end_token: int
     token_count: int

@@ -242,6 +242,41 @@ def test_simulate_rag_pipeline_marks_single_chunk_safe():
     assert result["chunks"][0]["similarity_score"] == 1.0
 
 
+def test_simulate_rag_pipeline_adds_chunk_traceability(monkeypatch):
+    def fake_decode_tokens(tokens, tokenizer_name):
+        if tokens == [1]:
+            return "cats"
+        if tokens == [2]:
+            return "filler"
+        if tokens == [3]:
+            return "mid filler"
+        if tokens == [4]:
+            return "cats again"
+        return " ".join(str(token) for token in tokens)
+
+    monkeypatch.setattr(chunk_simulator, "decode_tokens", fake_decode_tokens)
+
+    result = simulate_rag_pipeline(
+        token_ids=[1, 2, 3, 4],
+        chunk_size=1,
+        query="cats",
+        overlap=0,
+        tokenizer_name="cl100k_base",
+        top_k=4,
+        final_k=4,
+        retrieval_strategy="relevance_sorted",
+        context_window=100,
+        original_text="cats filler mid filler cats again",
+    )
+
+    assert len(result["chunks"]) == 4
+    assert result["chunks"][0]["relevance_score"] == result["chunks"][0]["similarity_score"]
+    assert result["chunks"][0]["attention_weight"] == result["chunks"][0]["positional_weight"]
+    assert result["chunks"][0]["used_by_model"] is True
+    assert result["chunks"][1]["lost_reason"] in {"low_relevance", "lost_in_middle"}
+    assert result["chunks"][2]["lost_reason"] in {"low_relevance", "lost_in_middle"}
+
+
 def test_simulate_rag_endpoint_returns_structured_optimization(monkeypatch):
     monkeypatch.setattr(
         app_module,
