@@ -99,7 +99,7 @@ def compute_retrieval_usage_gap(chunks: list[dict]) -> dict:
     }
 
 
-def detect_ignored_relevant(chunks: list[dict], relevance_thresh: float = 0.7, attention_thresh: float = 0.3) -> list:
+def detect_ignored_relevant(chunks: list[dict], relevance_thresh: float = 0.5, attention_thresh: float = 0.3) -> list:
     ignored = []
     for c in chunks:
         # Use rerank_score if it exists, fallback to similarity_score
@@ -126,7 +126,7 @@ def rerank_chunks(query: str, chunks: list[dict]) -> list[dict]:
             rerank_scores = reranker.predict(pairs)
             for chunk, score in zip(chunks, rerank_scores):
                 chunk["cross_encoder_score"] = round(float(score), 4)
-                chunk["rerank_score"] = round(float(score), 4)
+                chunk["rerank_score"] = min(1.0, round(float(score), 4))
 
             return sorted(
                 chunks,
@@ -143,7 +143,7 @@ def rerank_chunks(query: str, chunks: list[dict]) -> list[dict]:
         text_terms = _normalized_words(chunk.get("decoded_text", ""))
         keyword_score = len(query_terms & text_terms) / max(1, len(query_terms)) if query_terms else 0.0
         chunk["cross_encoder_score"] = None
-        chunk["rerank_score"] = round(chunk.get("similarity_score", 0.0) + (0.05 * len(query_terms & text_terms)), 4)
+        chunk["rerank_score"] = min(1.0, round(chunk.get("similarity_score", 0.0) + (0.05 * len(query_terms & text_terms)), 4))
         chunk["keyword_score"] = round(keyword_score, 3)
 
     return sorted(
@@ -279,6 +279,8 @@ def simulate_rag_pipeline(
         else:
             local_pos_weights = []
 
+        local_max_score = max((c.get("rerank_score", c.get("similarity_score", 0.0)) for c in local_valid), default=1.0)
+
         for i, chunk in enumerate(local_valid):
             chunk["positional_weight"] = local_pos_weights[i]
 
@@ -291,11 +293,19 @@ def simulate_rag_pipeline(
             chunk["risk_level"] = "safe (high retention)"
 
             if chunk["used_by_model"]:
-                if primary_score < 0.4 and local_pos_weights[i] > 0.8:
-                    chunk["lost_reason"] = "position_bias"
+                if primary_score < 0.4 or primary_score < 0.5 * local_max_score:
+                    chunk["lost_reason"] = "noise_attended"
+                    chunk["risk_level"] = "high_risk (irrelevant_but_attended)"
+                elif primary_score < 0.4 and local_pos_weights[i] > 0.8:
+                    chunk["lost_reason"] = None
                     chunk["risk_level"] = "high_risk (position_bias)"
+                elif 0.3 < primary_score < 0.6:
+                    chunk["lost_reason"] = "context_dilution"
+                    chunk["risk_level"] = "medium_risk (context_dilution)"
+                else:
+                    chunk["lost_reason"] = None
             else:
-                if primary_score > 0.6 and local_pos_weights[i] < 0.3:
+                if primary_score > 0.5 and local_pos_weights[i] < 0.3:
                     chunk["lost_reason"] = "lost_in_middle"
                     chunk["risk_level"] = "high_risk (lost_in_middle)"
                 elif primary_score < 0.4:
@@ -355,6 +365,7 @@ def simulate_rag_pipeline(
 
     # 5. Adaptive Thresholds & Final Importance
     final_importances = []
+    global_max_score = max((c.get("rerank_score", c.get("similarity_score", 0.0)) for c in valid_chunks), default=1.0)
     for i, chunk in enumerate(valid_chunks):
         chunk["positional_weight"] = positional_weights[i]
 
@@ -366,11 +377,19 @@ def simulate_rag_pipeline(
         chunk["risk_level"] = "safe (high retention)"
 
         if chunk["used_by_model"]:
-            if primary_score < 0.4 and positional_weights[i] > 0.8:
-                chunk["lost_reason"] = "position_bias"
+            if primary_score < 0.4 or primary_score < 0.5 * global_max_score:
+                chunk["lost_reason"] = "noise_attended"
+                chunk["risk_level"] = "high_risk (irrelevant_but_attended)"
+            elif primary_score < 0.4 and positional_weights[i] > 0.8:
+                chunk["lost_reason"] = None
                 chunk["risk_level"] = "high_risk (position_bias)"
+            elif 0.3 < primary_score < 0.6:
+                chunk["lost_reason"] = "context_dilution"
+                chunk["risk_level"] = "medium_risk (context_dilution)"
+            else:
+                chunk["lost_reason"] = None
         else:
-            if primary_score > 0.6 and positional_weights[i] < 0.3:
+            if primary_score > 0.5 and positional_weights[i] < 0.3:
                 chunk["lost_reason"] = "lost_in_middle"
                 chunk["risk_level"] = "high_risk (lost_in_middle)"
             elif primary_score < 0.4:
@@ -425,6 +444,9 @@ def simulate_rag_pipeline(
         thresh_medium = min_imp + (0.6 * range_imp)
 
         for chunk in valid_chunks:
+            if chunk.get("lost_reason") in ("noise_attended", "position_bias", "lost_in_middle"):
+                continue
+
             if chunk["final_importance"] <= thresh_critical:
                 chunk["risk_level"] = "critical (low position + low relevance)"
             elif chunk["final_importance"] <= thresh_medium:

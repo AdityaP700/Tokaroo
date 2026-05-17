@@ -56,6 +56,7 @@ class RagChunkRequest(BaseModel):
     top_k: Optional[int] = Field(default=5, description="Number of chunks retrieved by Vector DB")
     final_k: Optional[int] = Field(default=4, ge=1, description="Number of chunks kept after reranking")
     retrieval_strategy: Optional[str] = Field(default="relevance_sorted", description="'sequential' or 'relevance_sorted'")
+    auto_optimize: Optional[bool] = Field(default=False, description="Enable 2-pass adaptive optimization")
 
 class ChunkDetail(BaseModel):
     chunk_index: int
@@ -96,6 +97,7 @@ class OptimizationInsight(BaseModel):
     system_insight: Optional[str] = None
     actionable_steps: List[str]
     health_score: Optional[int] = None
+    is_optimized: Optional[bool] = False
 
 class RagChunkResponse(BaseModel):
     model: str

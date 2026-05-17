@@ -14,7 +14,6 @@ from chunk_simulator import (
 )
 app = FastAPI(title="Tokaroo API")
 
-
 @app.on_event("startup")
 def load_embedding_model():
     model = _load_default_sentence_embedding_model()
@@ -143,7 +142,7 @@ def simulate_rag(request: RagChunkRequest):
 
     # Guardrails for bad math
     if request.overlap >= request.chunk_size:
-        raise HTTPException(status_code=400, detail="Overlap must be less than chunk size.")
+        request.overlap = int(request.chunk_size * 0.2)
 
     top_k = request.top_k or 5
     retrieval_strategy = request.retrieval_strategy or "relevance_sorted"
@@ -166,6 +165,33 @@ def simulate_rag(request: RagChunkRequest):
     # FINAL DIAGNOSIS LAYER
     # ---------------------------------------------------------
     insights = generate_rag_diagnosis(rag_data, top_k, retrieval_strategy, request.chunk_size)
+
+    # ---------------------------------------------------------
+    # ADAPTIVE OPTIMIZATION (2-PASS)
+    # ---------------------------------------------------------
+    if request.auto_optimize and insights["health_score"] < 85:
+        
+        new_chunk_size = insights["recommended_config"].get("chunk_size", request.chunk_size)
+        new_overlap = insights["recommended_config"].get("overlap", request.overlap)
+        new_overlap = min(new_overlap, int(new_chunk_size * 0.2))
+        new_top_k = insights["recommended_config"].get("top_k", top_k)
+
+        # Re-run with optimized parameters
+        rag_data = run_rag_simulation(
+            token_ids=token_ids,
+            chunk_size=new_chunk_size,
+            query=request.query or request.text,
+            overlap=new_overlap,
+            tokenizer_name=config["tokenizer"],
+            top_k=new_top_k,
+            final_k=request.final_k,
+            retrieval_strategy=retrieval_strategy,
+            context_window=config["context_window"],
+            original_text=request.text
+        )
+        # Re-analyze with the new data
+        insights = generate_rag_diagnosis(rag_data, new_top_k, retrieval_strategy, new_chunk_size)
+        insights["is_optimized"] = True
 
     return RagChunkResponse(
         model=request.model,

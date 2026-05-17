@@ -1,11 +1,11 @@
 from fastapi.testclient import TestClient
 
-import app as app_module
-from analyzer import analyze_prompt_failure, generate_rag_diagnosis
-from app import app
-import chunk_simulator
-from chunk_simulator import simulate_rag_pipeline
-from model_config import SUPPORTED_MODELS
+from backend import app as app_module
+from backend.analyzer import analyze_prompt_failure, generate_rag_diagnosis
+from backend.app import app
+from backend import chunk_simulator
+from backend.chunk_simulator import simulate_rag_pipeline
+from backend.model_config import SUPPORTED_MODELS
 
 client = TestClient(app)
 
@@ -163,10 +163,23 @@ def test_generate_rag_diagnosis_keeps_small_inputs_optimal():
         "extra_tokens_due_to_overlap": 0,
         "chunks": [
             {
+                "chunk_index": 1,
                 "similarity_score": 1.0,
                 "positional_weight": 1.0,
+                "relevance_score": 1.0,
+                "attention_weight": 1.0,
+                "final_importance": 1.0,
+                "risk_level": "safe (high retention)",
+                "start_token": 0,
+                "end_token": 1,
+                "token_count": 2,
+                "boundary_snippet": "hi",
+                "used_by_model": True
             }
         ],
+        "ignored_relevant_chunks": [],
+        "attention_waste": 0.0,
+        "retrieval_analysis": {"usage_quality": 1.0, "gap": 0.0}
     }
 
     diagnosis = generate_rag_diagnosis(rag_data, top_k=3, retrieval_strategy="relevance_sorted", chunk_size=10)
@@ -184,9 +197,55 @@ def test_generate_rag_diagnosis_flags_middle_decay():
         "chunks_in_prompt": 5,
         "extra_tokens_due_to_overlap": 10,
         "chunks": [
-            {"similarity_score": 0.9, "positional_weight": 0.9},
-            {"similarity_score": 0.85, "positional_weight": 0.25},
+            {
+                "chunk_index": 1,
+                "similarity_score": 0.9,
+                "positional_weight": 0.9,
+                "relevance_score": 0.9,
+                "attention_weight": 0.9,
+                "final_importance": 0.81,
+                "risk_level": "safe (high retention)",
+                "start_token": 0,
+                "end_token": 10,
+                "token_count": 10,
+                "boundary_snippet": "hi",
+                "used_by_model": True
+            },
+            {
+                "chunk_index": 2,
+                "similarity_score": 0.85,
+                "positional_weight": 0.25,
+                "relevance_score": 0.85,
+                "attention_weight": 0.25,
+                "final_importance": 0.21,
+                "risk_level": "high_risk (lost in middle)",
+                "lost_reason": "lost_in_middle",
+                "start_token": 10,
+                "end_token": 20,
+                "token_count": 10,
+                "boundary_snippet": "hi",
+                "used_by_model": False
+            },
         ],
+        "ignored_relevant_chunks": [
+            {
+                "chunk_index": 2,
+                "similarity_score": 0.85,
+                "positional_weight": 0.25,
+                "relevance_score": 0.85,
+                "attention_weight": 0.25,
+                "final_importance": 0.21,
+                "risk_level": "high_risk (lost in middle)",
+                "lost_reason": "lost_in_middle",
+                "start_token": 10,
+                "end_token": 20,
+                "token_count": 10,
+                "boundary_snippet": "hi",
+                "used_by_model": False
+            }
+        ],
+        "attention_waste": 0.0,
+        "retrieval_analysis": {"usage_quality": 0.9, "gap": 0.0}
     }
 
     diagnosis = generate_rag_diagnosis(rag_data, top_k=3, retrieval_strategy="relevance_sorted", chunk_size=20)
@@ -202,7 +261,23 @@ def test_generate_rag_diagnosis_flags_token_redundancy():
         "total_chunks_created": 5,
         "chunks_in_prompt": 5,
         "extra_tokens_due_to_overlap": 60,
-        "chunks": [{"similarity_score": 0.8, "positional_weight": 0.9}],
+        "chunks": [{
+            "chunk_index": 1,
+            "similarity_score": 0.8,
+            "positional_weight": 0.9,
+            "relevance_score": 0.8,
+            "attention_weight": 0.9,
+            "final_importance": 0.72,
+            "risk_level": "safe (high retention)",
+            "start_token": 0,
+            "end_token": 10,
+            "token_count": 10,
+            "boundary_snippet": "hi",
+            "used_by_model": True
+        }],
+        "ignored_relevant_chunks": [],
+        "attention_waste": 0.6,
+        "retrieval_analysis": {"usage_quality": 0.8, "gap": 0.0}
     }
 
     diagnosis = generate_rag_diagnosis(rag_data, top_k=5, retrieval_strategy="sequential", chunk_size=30)
@@ -218,7 +293,23 @@ def test_generate_rag_diagnosis_flags_over_chunking():
         "total_chunks_created": 11,
         "chunks_in_prompt": 5,
         "extra_tokens_due_to_overlap": 20,
-        "chunks": [{"similarity_score": 0.8, "positional_weight": 0.9}],
+        "chunks": [{
+            "chunk_index": 1,
+            "similarity_score": 0.8,
+            "positional_weight": 0.9,
+            "relevance_score": 0.8,
+            "attention_weight": 0.9,
+            "final_importance": 0.72,
+            "risk_level": "safe (high retention)",
+            "start_token": 0,
+            "end_token": 10,
+            "token_count": 10,
+            "boundary_snippet": "hi",
+            "used_by_model": True
+        }],
+        "ignored_relevant_chunks": [],
+        "attention_waste": 0.0,
+        "retrieval_analysis": {"usage_quality": 0.8, "gap": 0.0}
     }
 
     diagnosis = generate_rag_diagnosis(rag_data, top_k=5, retrieval_strategy="relevance_sorted", chunk_size=20)
@@ -314,7 +405,7 @@ def test_simulate_rag_pipeline_flags_used_but_low_relevance_chunk_as_position_bi
     assert result["chunks"][0]["used_by_model"] is True
     assert result["chunks"][0]["attention_weight"] == 1.0
     assert result["chunks"][0]["similarity_score"] < 0.4
-    assert result["chunks"][0]["lost_reason"] == "position_bias"
+    assert result["chunks"][0]["lost_reason"] == "noise_attended"
     assert result["chunks"][0]["risk_level"] == "high_risk (position_bias)"
 
 

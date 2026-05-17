@@ -68,7 +68,11 @@ def generate_rag_diagnosis(
     chunks_in_prompt = rag_data.get("chunks_in_prompt", 0)
     extra_tokens = rag_data.get("extra_tokens_due_to_overlap", 0)
     chunk_size = chunk_size or rag_data.get("chunk_size", 1) or 1
-    overlap_ratio = extra_tokens / max(1, total_chunks_created * chunk_size)
+    overlap_ratio = extra_tokens / max(1, rag_data.get("total_original_tokens", 1))
+
+    retrieval_analysis = rag_data.get("retrieval_analysis", {})
+    usage_gap = retrieval_analysis.get("gap", 0.0)
+    attention_waste = rag_data.get("attention_waste", 0.0)
 
     issues: list[dict] = []
     primary_issue = "optimal"
@@ -76,6 +80,7 @@ def generate_rag_diagnosis(
     confidence = 0.95
     short_summary = "RAG pipeline is healthy and context utilization is optimal."
     actionable_steps: list[str] = []
+    recommended_config: dict = {}
 
     # Base health score penalties (attention penalty applied later)
     health_score = 100
@@ -85,7 +90,6 @@ def generate_rag_diagnosis(
     # Check 1: Token Redundancy (Highest Priority)
     if overlap_ratio > 0.4:
         issues.append({"type": "high_token_redundancy", "severity": "high"})
-        primary_issue = "high_token_redundancy"
         impact = "high"
         confidence = 0.95
         short_summary = "Excessive overlap causing major token duplication."
@@ -93,13 +97,13 @@ def generate_rag_diagnosis(
             "Reduce overlap to 10-20% of chunk size.",
             "Avoid overlapping too many chunks for small inputs."
         ])
+    if  overlap_ratio > 0.5:
+        recommended_config["overlap"] = max(0, int(chunk_size * 0.1))
 
     # Check 2: Over-chunking (Too many fragments)
     if total_chunks_created > 10:
         # over-chunking can co-occur with redundancy; append rather than elif
         issues.append({"type": "over_chunking", "severity": "high"})
-        if primary_issue == "optimal":
-            primary_issue = "over_chunking"
         impact = "high"
         confidence = 0.9
         short_summary = "Too many chunks created for given input size, causing fragmentation."
@@ -108,12 +112,25 @@ def generate_rag_diagnosis(
             "Aim for 3-5 chunks for optimal performance."
         ])
 
+    high_relevance_chunks = [
+    c for c in chunks
+    if c.get("relevance_score", 0.0) > 0.5
+]
+    if len(high_relevance_chunks) >= 2:
+        spread = max(c["chunk_index"] for c in high_relevance_chunks) - \
+             min(c["chunk_index"] for c in high_relevance_chunks)
+
+    if spread > 1:
+        issues.append({
+            "type": "semantic_fragmentation",
+            "severity": "high"
+        })
     # Check 3: Context Window Truncation
+    # FIX: Only trigger on explicit error or when chunks were actually dropped
     if rag_data.get("error") == "context_window_overflow" or (
-        total_chunks_created >= top_k and chunks_in_prompt < top_k
+        chunks_in_prompt < len(chunks)
     ):
         issues.append({"type": "context_window_overflow", "severity": "critical"})
-        primary_issue = "context_window_overflow"
         impact = "critical"
         confidence = 0.99
         if chunks_in_prompt == 0:
@@ -129,20 +146,29 @@ def generate_rag_diagnosis(
             "Upgrade to a model with a larger context window (e.g., Claude 3.5 Sonnet or Gemini 1.5 Pro)."
         ])
 
+    relevance_scores = [c.get("relevance_score", c.get("similarity_score", 0.0)) for c in chunks]
+    max_relevance = max(relevance_scores, default=0.0)
+    avg_relevance = sum(relevance_scores) / len(relevance_scores) if relevance_scores else 0.0
+    # FIX: Adaptive threshold based on corpus quality instead of static 0.6
+    relevant_threshold = max(0.3, avg_relevance * 0.8)
+    relevant_chunks = [c for c in chunks if c.get("relevance_score", c.get("similarity_score", 0.0)) > relevant_threshold]
+    lost_relevant_chunks = [c for c in relevant_chunks if not c.get("used_by_model", True)]
+    ignored_relevant = rag_data.get("ignored_relevant_chunks", [])
+    lost_relevant = bool(lost_relevant_chunks) or bool(ignored_relevant)
+
     # Check 4: The Lost in the Middle Effect
     # Lost in the middle detection
     low_importance_chunks = [
         c for c in chunks
-        if c.get("positional_weight", 0) < 0.3 and c.get("similarity_score", 0) > 0.7
+        if c.get("positional_weight", 0) < 0.3
+        and c.get("relevance_score", c.get("similarity_score", 0.0)) > relevant_threshold
     ]
 
-    if low_importance_chunks:
+    if low_importance_chunks or lost_relevant:
         issues.append({"type": "lost_in_middle_decay", "severity": "medium"})
-        if primary_issue == "optimal":
-            primary_issue = "lost_in_middle_decay"
         impact = "high"
         confidence = 0.88
-        short_summary = "High-relevance chunks are trapped in the middle of the prompt and will likely be ignored by the LLM."
+        short_summary = "Relevant chunks are ignored due to positional decay, while less relevant chunks dominate due to recency bias."
         actionable_steps.extend([
             "Move critical chunks to the very end of the prompt (leverage recency bias).",
             "Reduce total chunk count to 3-5 to flatten the attention curve.",
@@ -153,8 +179,6 @@ def generate_rag_diagnosis(
     # Secondary check: token economics
     if overlap_ratio > 0.3 and not any(i["type"] == "high_token_redundancy" for i in issues):
         issues.append({"type": "high_token_redundancy", "severity": "medium"})
-        if primary_issue == "optimal":
-            primary_issue = "high_token_redundancy"
         impact = "medium"
         confidence = 0.92
         short_summary = f"You are paying for {extra_tokens} duplicate tokens due to excessive chunk overlap."
@@ -163,9 +187,98 @@ def generate_rag_diagnosis(
             "Implement semantic chunking instead of blind character/token counts."
         ])
 
+    # Check 6: Weak Retrieval Signal (Semantic Grounding)
+    low_relevance_all = bool(chunks) and max_relevance < relevant_threshold and avg_relevance < 0.3
+    if low_relevance_all:
+        issues.append({"type": "weak_query_match", "severity": "high"})
+        impact = "high"
+        confidence = 0.85
+        short_summary = "All retrieved chunks have low relevance to the overall query topic (weak semantic grounding)."
+        actionable_steps.extend([
+            "Review query generation or embedding strategy.",
+            "Ensure vector DB contains domain-relevant data."
+        ])
+
+    # Check 7: Noisy Retrieval / Sub-optimal integration
+    if usage_gap > 0.1 or attention_waste > 0.2:
+        issues.append({"type": "suboptimal_integration", "severity": "medium"})
+        impact = "medium"
+        confidence = 0.9
+        short_summary = "Signal is not fully optimized. High attention waste or gap in retrieval utilization."
+        actionable_steps.extend([
+            "Improve retrieval ranking.",
+            "Apply explicit prompt context chunk reordering."
+        ])
+
+    # FIX: Noise detection with ratio-based measurement instead of just boolean
+    noise_chunks = [c for c in chunks if c.get("lost_reason") == "noise_attended"]
+    noise_ratio = len(noise_chunks) / len(chunks) if chunks else 0.0
+    if noise_ratio > 0.25:
+        issues.append({"type": "noisy_context_usage", "severity": "high"})
+        impact = "high"
+        confidence = 0.90
+        short_summary = f"Noise ratio {noise_ratio:.0%}: irrelevant chunks are being heavily attended to, posing a high hallucination risk."
+    elif noise_chunks:
+        # Still flag it but at lower severity if ratio is small
+        issues.append({"type": "noisy_context_usage", "severity": "medium"})
+        impact = "medium"
+        confidence = 0.85
+        short_summary = "Minor noise detected: some irrelevant chunks are receiving attention."
+
+    # Check 8: Semantic Mismatch / False Positive Grounding
+    semantic_mismatch = [
+        c for c in chunks
+        if c.get("relevance_score", c.get("similarity_score", 0.0)) > 0.8
+        and c.get("keyword_score", 0.0) < 0.4
+    ]
+    if semantic_mismatch:
+        issues.append({"type": "semantic_mismatch", "severity": "high"})
+        impact = "high"
+        confidence = 0.92
+        short_summary = "Retrieved chunks have high semantic scores but low lexical grounding (model may hallucinate relevance)."
+        actionable_steps.extend([
+            "Apply a hybrid grounding score (semantic + lexical).",
+            "Filter chunks with high semantic trust but <40% keyword coverage."
+        ])
+
+    # Check 9: False Positive Retrieval
+    # FIX: Correct logic — model trusts it (used_by_model) but lexical grounding is weak
+    false_positives = [
+        c for c in chunks
+        if c.get("relevance_score", 0.0) > 0.7
+        and c.get("keyword_score", 0.0) < 0.2
+        and c.get("used_by_model") is True
+    ]
+    if false_positives:
+        issues.append({"type": "false_positive_retrieval", "severity": "high"})
+        impact = "high"
+        confidence = 0.90
+        short_summary = "High relevance chunks are taking up attention despite low lexical grounding, risking confident hallucinations."
+        actionable_steps.extend([
+            "Ensure chunks actually contain the entity/topic words before letting them influence the context."
+        ])
+
+    # Check 10: Low Diversity Retrieval (Elite Signal)
+    if chunks and len(chunks) >= 3:
+        unique_scores = set(c.get("relevance_score", 0.0) for c in chunks)
+        if len(unique_scores) <= 2:
+            issues.append({"type": "low_diversity_retrieval", "severity": "medium"})
+            impact = "medium"
+            short_summary = "Retrieved chunks share nearly identical relevance scores, indicating a narrow semantic search space."
+            actionable_steps.extend([
+                "Consider increasing vector search distance or enabling hybrid keyword variation searches."
+            ])
+
     # Success Case
-    if not actionable_steps:
+    if not actionable_steps and primary_issue == "optimal" and usage_gap < 0.05 and attention_waste < 0.2:
         actionable_steps.append("No changes needed. Keep building!")
+    elif not actionable_steps:
+        actionable_steps.extend([
+            "Reduce Top-K retrieval to avoid introducing irrelevant chunks.",
+            "Improve reranking to filter low-relevance chunks before prompt construction.",
+            "Apply relevance thresholding before including chunks in context.",
+            "Consider hybrid retrieval with stronger semantic filtering."
+        ])
 
     # Recommended config heuristics
     recommended_config: dict = {}
@@ -186,14 +299,17 @@ def generate_rag_diagnosis(
 
     # Dynamic chunk sizing suggestion
     total_tokens = rag_data.get("total_original_tokens", 0)
-    suggested_chunk = None
-    if total_tokens > 0:
-        if total_tokens < 200:
-            suggested_chunk = total_tokens
-        elif total_tokens < 1000:
-            suggested_chunk = 250
-        else:
-            suggested_chunk = 500
+
+    if total_tokens <= 100:
+        suggested_chunk =50
+
+    elif total_tokens<=300:
+        suggested_chunk=total_tokens //3
+
+    elif total_tokens<=1000:
+        suggested_chunk =150
+    else :
+        suggested_chunk=250
 
     # Ensure recommended_config includes the dynamic suggestion if available
     if suggested_chunk is not None:
@@ -210,19 +326,56 @@ def generate_rag_diagnosis(
     if impact == "critical":
         health_score = min(health_score, 68)
 
+    if any(c.get("lost_reason") == "noise_attended" for c in chunks):
+        health_score = min(health_score, 80)
+
+    # ---- FINAL PRIORITY RESOLUTION (SINGLE SOURCE OF TRUTH) ----
+    # All primary_issue assignments above have been removed.
+    # This is the ONLY place where primary_issue gets decided.
+    priority_order = [
+    "context_window_overflow",
+    "high_token_redundancy",
+    "over_chunking",
+    "semantic_fragmentation",
+    "lost_in_middle_decay",
+    "noisy_context_usage",
+    "semantic_mismatch",
+    "false_positive_retrieval",
+    "weak_query_match",
+    "low_diversity_retrieval",
+    "suboptimal_integration",
+]
+
+    detected = set(i["type"] for i in issues)
+
+    for p in priority_order:
+        if p in detected:
+            primary_issue = p
+            break
+
     system_insight = "RAG pipeline is healthy and context utilization is optimal."
     if primary_issue == "context_window_overflow":
         system_insight = "Context overflow is the dominant failure mode: retrieved chunks are being dropped before the model can use them."
     elif primary_issue == "lost_in_middle_decay":
         system_insight = "Low-relevance chunk placement and attention collapse are causing the model to miss important middle chunks."
     elif primary_issue == "high_token_redundancy":
-        system_insight = "Overlapping chunks are wasting context budget and reducing the effective signal available to the model."
+        system_insight = "Excessive overlap is wasting tokens and reducing effective context signal."
     elif primary_issue == "over_chunking":
-        system_insight = "Too many small chunks are fragmenting the prompt and weakening overall context retention."
+        system_insight = "Too many small chunks fragmented the context, causing important information to be ignored."
+    elif primary_issue == "noisy_context_usage":
+        system_insight = "Context quality issues detected: model is attending to suboptimal or irrelevant chunks."
+    elif primary_issue == "noisy_retrieval":
+        system_insight = "Context quality issues detected: model is attending to suboptimal or irrelevant chunks."
     elif primary_issue == "optimal":
         system_insight = "The retrieval and usage pipeline is balanced and the model is seeing the right chunks in the right places."
+    elif primary_issue == "semantic_fragmentation":
+        system_insight = "Relevant information is split across chunks, weakening retrieval effectiveness."
+    else:
+        system_insight = "Context quality issues detected: pipeline is failing to utilize extracted knowledge effectively."
 
-    health_score = max(0, min(100, int(health_score)))
+    health_score = max(20, min(100, int(health_score)))
+
+
 
     # Simulate chunk reordering to see if reordering by relevance (putting most relevant last)
     def simulate_reorder_effect(rag: dict) -> dict:
@@ -230,7 +383,7 @@ def generate_rag_diagnosis(
         before_curve = rag.get("attention_curve") or [c.get("positional_weight", 0.0) for c in orig_chunks]
 
         # create a shallow copy and sort so highest similarity ends up last
-        reordered = sorted(orig_chunks, key=lambda x: x.get("similarity_score", 0.0))
+        reordered = sorted(orig_chunks, key=lambda x: x.get("relevance_score", x.get("similarity_score", 0.0)))
 
         # recompute positional weights for the reordered set
         n = len(reordered)
