@@ -150,6 +150,8 @@ def test_generate_rag_diagnosis_flags_context_window_overflow():
 
     assert diagnosis["diagnosis"]["primary_issue"] == "context_window_overflow"
     assert diagnosis["diagnosis"]["impact"] == "critical"
+    assert diagnosis["health_score"] < 70
+    assert "context overflow" in diagnosis["system_insight"].lower()
     assert len(diagnosis["actionable_steps"]) >= 3
 
 
@@ -270,11 +272,24 @@ def test_simulate_rag_pipeline_adds_chunk_traceability(monkeypatch):
     )
 
     assert len(result["chunks"]) == 4
+    assert result["retrieval_mode"] == "hybrid"
+    assert result["reranked"] is True
+    assert len(result["rerank_scores"]) == 4
     assert result["chunks"][0]["relevance_score"] == result["chunks"][0]["similarity_score"]
     assert result["chunks"][0]["attention_weight"] == result["chunks"][0]["positional_weight"]
     assert result["chunks"][0]["used_by_model"] is True
     assert result["chunks"][1]["lost_reason"] in {"low_relevance", "lost_in_middle", "position_bias"}
     assert result["chunks"][2]["lost_reason"] in {"low_relevance", "lost_in_middle", "position_bias"}
+    # New metrics: retrieval vs usage gap, ignored relevant detection, attention waste
+    assert "retrieval_analysis" in result
+    assert set(result["retrieval_analysis"].keys()) == {"retrieval_quality", "usage_quality", "gap"}
+    assert "ignored_relevant_chunks" in result
+    assert isinstance(result["ignored_relevant_chunks"], list)
+    assert "attention_waste" in result
+    assert isinstance(result["attention_waste"], float)
+    assert "reranker_impact" in result
+    assert set(result["reranker_impact"].keys()) == {"before", "after"}
+    assert set(result["reranker_impact"]["before"].keys()) == {"retrieval_quality", "usage_quality", "gap"}
 
 
 def test_simulate_rag_pipeline_flags_used_but_low_relevance_chunk_as_position_bias(monkeypatch):
@@ -300,6 +315,7 @@ def test_simulate_rag_pipeline_flags_used_but_low_relevance_chunk_as_position_bi
     assert result["chunks"][0]["attention_weight"] == 1.0
     assert result["chunks"][0]["similarity_score"] < 0.4
     assert result["chunks"][0]["lost_reason"] == "position_bias"
+    assert result["chunks"][0]["risk_level"] == "high_risk (position_bias)"
 
 
 def test_simulate_rag_endpoint_returns_structured_optimization(monkeypatch):
@@ -311,6 +327,12 @@ def test_simulate_rag_endpoint_returns_structured_optimization(monkeypatch):
             "total_chunks_created": 4,
             "chunks_in_prompt": 4,
             "extra_tokens_due_to_overlap": 20,
+            "retrieval_mode": "hybrid",
+            "reranked": True,
+            "rerank_scores": [0.91],
+            "retrieval_analysis": {"retrieval_quality": 0.91, "usage_quality": 0.91, "gap": 0.0},
+            "ignored_relevant_chunks": [],
+            "attention_waste": 0.0,
             "chunks": [
                 {
                     "chunk_index": 1,
@@ -344,6 +366,13 @@ def test_simulate_rag_endpoint_returns_structured_optimization(monkeypatch):
     assert data["model"] == "claude-sonnet-4-6"
     assert data["optimization"]["diagnosis"]["primary_issue"] == "optimal"
     assert "No changes needed" in data["optimization"]["actionable_steps"][0]
+    assert "system_insight" in data["optimization"]
+    assert data["retrieval_mode"] == "hybrid"
+    assert data["reranked"] is True
+    assert isinstance(data["rerank_scores"], list)
+    assert "retrieval_analysis" in data
+    assert "ignored_relevant_chunks" in data
+    assert "attention_waste" in data
     assert len(data["chunks"]) == 1
 
 
@@ -366,10 +395,13 @@ def test_simulate_rag_endpoint_returns_structured_overflow(monkeypatch):
         json={
             "text": LONG_TEXT,
             "model": "claude-sonnet-4-6",
-            "chunk_size": 16,
-            "overlap": 4,
-            "top_k": 5,
+            "chunk_size": 5,
+            "overlap": 2,
+            "top_k": 7,
+            "final_k": 5,
+            "context_window": 50,
             "retrieval_strategy": "relevance_sorted",
+            "query": "find specific content",
         },
     )
 

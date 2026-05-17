@@ -8,7 +8,9 @@ from typing import Dict
 from chunk_simulator import (
     simulate_rag_pipeline as run_rag_simulation,
     _load_default_sentence_embedding_model,
+    _load_default_cross_encoder_reranker,
     set_sentence_embedding_model,
+    set_cross_encoder_reranker,
 )
 app = FastAPI(title="Tokaroo API")
 
@@ -17,6 +19,8 @@ app = FastAPI(title="Tokaroo API")
 def load_embedding_model():
     model = _load_default_sentence_embedding_model()
     set_sentence_embedding_model(model)
+    reranker = _load_default_cross_encoder_reranker()
+    set_cross_encoder_reranker(reranker)
 
 
 @app.get("/")
@@ -170,6 +174,13 @@ def simulate_rag(request: RagChunkRequest):
         chunks_in_prompt=rag_data["chunks_in_prompt"],
         extra_tokens_due_to_overlap=rag_data["extra_tokens_due_to_overlap"],
         error=rag_data.get("error"),
+        retrieval_mode=rag_data.get("retrieval_mode"),
+        reranked=rag_data.get("reranked"),
+        rerank_scores=rag_data.get("rerank_scores"),
+        retrieval_analysis=rag_data.get("retrieval_analysis"),
+        ignored_relevant_chunks=rag_data.get("ignored_relevant_chunks"),
+        attention_waste=rag_data.get("attention_waste"),
+        reranker_impact=rag_data.get("reranker_impact"),
         optimization=insights,
         chunks=rag_data["chunks"]
     )

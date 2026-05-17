@@ -92,6 +92,8 @@ class OptimizationInsight(BaseModel):
     attention_curve: Optional[List[float]] = None
     # Effects of simulating chunk reordering (before/after comparison)
     reorder_effect: Optional[Dict[str, Any]] = None
+    # High-level conclusion for the whole RAG system
+    system_insight: Optional[str] = None
     actionable_steps: List[str]
     health_score: Optional[int] = None
 
@@ -102,5 +104,12 @@ class RagChunkResponse(BaseModel):
     chunks_in_prompt: int
     extra_tokens_due_to_overlap: int
     error: Optional[str] = None
+    retrieval_mode: Optional[str] = None
+    reranked: Optional[bool] = None
+    rerank_scores: Optional[List[float]] = None
+    retrieval_analysis: Optional[Dict[str, float]] = None
+    ignored_relevant_chunks: Optional[List[int]] = None
+    attention_waste: Optional[float] = None
+    reranker_impact: Optional[Dict[str, Any]] = None
     optimization: OptimizationInsight
     chunks: List[ChunkDetail]

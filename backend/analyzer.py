@@ -206,6 +206,22 @@ def generate_rag_diagnosis(
     if any(i.get("type") == "lost_in_middle_decay" for i in issues):
         health_score -= 15
 
+    # Critical diagnoses should never present as mostly healthy.
+    if impact == "critical":
+        health_score = min(health_score, 68)
+
+    system_insight = "RAG pipeline is healthy and context utilization is optimal."
+    if primary_issue == "context_window_overflow":
+        system_insight = "Context overflow is the dominant failure mode: retrieved chunks are being dropped before the model can use them."
+    elif primary_issue == "lost_in_middle_decay":
+        system_insight = "Low-relevance chunk placement and attention collapse are causing the model to miss important middle chunks."
+    elif primary_issue == "high_token_redundancy":
+        system_insight = "Overlapping chunks are wasting context budget and reducing the effective signal available to the model."
+    elif primary_issue == "over_chunking":
+        system_insight = "Too many small chunks are fragmenting the prompt and weakening overall context retention."
+    elif primary_issue == "optimal":
+        system_insight = "The retrieval and usage pipeline is balanced and the model is seeing the right chunks in the right places."
+
     health_score = max(0, min(100, int(health_score)))
 
     # Simulate chunk reordering to see if reordering by relevance (putting most relevant last)
@@ -268,4 +284,5 @@ def generate_rag_diagnosis(
         "recommended_config": recommended_config,
         "attention_curve": attention_curve,
         "reorder_effect": reorder_effect,
+        "system_insight": system_insight,
     }
