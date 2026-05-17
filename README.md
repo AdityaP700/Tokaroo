@@ -1,103 +1,87 @@
-# Tokaroo — Debug why your RAG fails
+# Tokaroo — The Adaptive RAG Evaluator & Optimizer
 
-Tokaroo is a lightweight toolkit that helps you understand *why* Retrieval-Augmented Generation (RAG) systems fail — even when retrieval looks correct.
+Tokaroo is an advanced, lightweight AI evaluation engineering toolkit designed to diagnose, explain, and automatically heal Retrieval-Augmented Generation (RAG) pipelines.
 
-It simulates how chunks are selected, positioned, and processed by an LLM, exposing issues like:
-- lost-in-the-middle attention decay
-- token redundancy from overlap
-- context window inefficiencies
+Instead of just counting tokens, Tokaroo acts as an **X-Ray for your prompt context**, simulating how chunks are semantically embedded, cross-encoded, positioned, and ultimately processed by LLMs. It exposes complex cognitive failures like:
+- **Lost-in-the-Middle Attention Decay**: The model ignores valid data because of where it was placed.
+- **Semantic Mismatch & Hallucination Risks**: The vector DB loved the chunk (high semantic score), but it lacks actual lexical grounding (keywords), leading to false confidence.
+- **Noisy Context Usage**: Irrelevant chunks taking up valuable cognitive attention.
+- **Semantic Fragmentation**: Related ideas sliced apart by poor chunk boundaries.
 
-Instead of guessing configs, Tokaroo shows you what the model actually “pays attention to”.
+## Target Audience
+- **Academicians & Researchers:** Study and visualize positional bias and attention decay dynamically.
+- **Students:** Understand the intersection of Vector Search, Reranking, and LLM Prompt Construction without paying thousands in API fees.
+- **IT Developers / AI Engineers:** Audit your RAG system's chunking heuristics, reduce token padding overlap, and automatically optimize runtime parameters for production pipelines.
 
-How it works (intuition)
-------------------------
-Text → Chunking → Retrieval → Prompt Assembly → Attention Simulation → Diagnosis → Recommendation
+## How It Works (The Architecture)
 
-Why this matters
----------------
-Even when retrieval returns highly relevant chunks, LLMs often ignore information in the middle of the prompt due to attention bias.
+1. **Text → Tokenization**: Uses target-model tokenizers (e.g., `cl100k_base`, `llama_sentencepiece`) to accurately measure footprint.
+2. **Chunking Simulation**: Emulates naive chunking, enforcing safety math (preventing pathological overlaps > 50%).
+3. **Hybrid Information Retrieval**:
+   - **Semantic Search:** Uses `SentenceTransformers` (`all-MiniLM-L6-v2`) for raw dense embedding generation and similarity scoring.
+   - **Lexical Overlap:** Computes keyword density to ensure semantic matches aren't "hallucinated relevance".
+4. **Cross-Encoder Reranking**: Uses `ms-marco-MiniLM-L-6-v2` as an elite signal truth to re-evaluate semantic relevance against the query.
+5. **Attention Model & Usage Simulation**: Calculates deterministic positional weights to simulate U-shaped LLM attention curves.
+6. **Diagnostic Analyzer**: A strict, hierarchical decision tree identifies the primary structural flaw (e.g., Overflow > Redundancy > Lost in Middle > Noise).
+7. **Adaptive Optimizer Loop (2-Pass Mode)**: If `auto_optimize=True` and the `health_score` is poor, Tokaroo automatically applies its recommended config and re-runs the simulation to "heal" the RAG query.
 
-This leads to:
-- incomplete answers
-- missing key context
-- hallucinations despite correct retrieval
+## What Tokaroo Gives You
+A heavily structured JSON response detailing:
+- **`diagnosis`**: The primary failure mode and its severity.
+- **`issues`**: All co-occurring issues (e.g., overlap + noise).
+- **`health_score`**: 0–100 index of cognitive pipeline safety.
+- **`recommended_config`**: Auto-calculated chunk size, overlap, and `top_k` specific to your corpus size.
+- **`attention_curve`**: Data to plot the LLM's positional bias.
+- **`is_optimized`**: True if Tokaroo engaged its 2-pass feedback loop to fix your parameters.
 
-Tokaroo helps you diagnose whether the problem is:
-- retrieval (chunking, overlap, top_k), or
-- model behavior (attention decay, recency bias)
+## The Priority Diagnosis Tree
+When a RAG system fails, it often fails in multiple ways. Tokaroo enforces a strict causal diagnosis hierarchy:
+1. `context_window_overflow` (Input exceeds model limits)
+2. `high_token_redundancy` (Catastrophic overlap waste)
+3. `over_chunking` (Fragmentation via tiny chunks)
+4. `semantic_fragmentation` (Ideas spread too far apart)
+5. `lost_in_middle_decay` (Relevant chunks buried in the attention trough)
+6. `noisy_context_usage` (Irrelevant garbage heavily attended to)
+7. `semantic_mismatch` (High vector similarity, zero keyword presence)
+8. `false_positive_retrieval` (Model trusts a chunk that shouldn't be trusted)
+9. `weak_query_match` (Vector space is oblivious to the query)
+10. `low_diversity_retrieval` (Vector space is too narrow)
 
-What Tokaroo gives you (plain)
---------------------------------
-- A simulated RAG pipeline: chunking, retrieval, placement into a prompt, and a simple attention model.
-- A structured diagnosis with:
-    - `issues`: a short list of detected problems (can be more than one),
-    - `health_score`: a 0–100 indicator of how healthy the configuration is,
-    - `recommended_config`: quick tunable suggestions to try,
-    - `attention_curve`: numbers you can plot to visualize what the model favors,
-    - `reorder_effect`: a light simulation that tests whether moving important chunks to the end helps.
+## Supported LLM Profiles
+- **Claude 3.5 Sonnet (`claude-sonnet-4-6`)**: 1M Window
+- **GPT-4o (`gpt-4o`)**: 128k Window, `o200k_base`
+- **Gemini 1.5 Pro (`gemini-3.1-pro`)**: 1M Window
+- **Llama 3 8B (`llama-3-8b-instruct`)**: 8k Window
 
-Easy examples you tried
------------------------
-- Config A (bad): `chunk_size=80`, `overlap=60` → huge duplication and cost.
-- Config B (balanced): `chunk_size=106`, `overlap=12` → efficient configuration, but often still `lost_in_middle_decay` because the model ignores middle chunks.
-
-Example output (simplified)
----------------------------
-```json
-{
-    "issues": ["lost_in_middle_decay"],
-    "health_score": 81,
-    "attention_curve": [0.5, 0.12, 0.15, 1.0]
-}
-```
-
-Interpretation:
-
-middle chunks (~0.12, ~0.15) are effectively ignored
-last chunk dominates due to recency bias
-
-What to try next
------------------
-- If `high_token_redundancy` appears: reduce overlap.
-- If `over_chunking` appears: increase chunk size or reduce chunk count.
-- If `lost_in_middle_decay` appears: consider reordering important chunks toward the end, summarizing middle chunks, or reranking retrieved chunks.
-
-Developer notes (short)
------------------------
-- Similarity is currently a simple keyword-overlap when original text is available (fast and interpretable). It can be replaced with embeddings later.
-- The attention model is intentionally deterministic to make results repeatable and easy to reason about.
-- The diagnosis returns multiple issues so you can see combined failure modes.
-
-Key insights from this project
------------------------------
-- RAG failures are often caused by attention allocation, not retrieval quality
-- More chunks ≠ better performance
-- Even well-tuned chunking cannot fully eliminate attention bias
-- Position of information in the prompt significantly affects model output
-
-Potential improvements:
-- lightweight frontend to visualize attention curves
-- embedding-based similarity instead of keyword overlap
-- smarter reranking strategies
-
-Quick start (backend)
----------------------
+## Quick Start
 From the project root:
 
 ```powershell
 cd backend
-# optional: activate venv
-# .\venv\Scripts\Activate.ps1
+# create and activate venv
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
 pip install -r requirements.txt
 uvicorn app:app --reload --port 8000
 ```
 
-Try a RAG simulation (example using `curl`):
+Try the Adaptive Simulator using `curl`:
 
 ```bash
-curl -sS -X POST "http://127.0.0.1:8000/simulate-rag" \
-        -H "Content-Type: application/json" \
-        -d '{"text":"Your long text here...", "model":"claude-sonnet-4-6", "chunk_size":106, "overlap":12, "top_k":4}'
+curl -X POST "http://127.0.0.1:8000/simulate-rag" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "text": "Your long source text...",
+           "query": "Specific question about text",
+           "model": "gpt-4o",
+           "chunk_size": 25,
+           "overlap": 24,
+           "top_k": 5,
+           "auto_optimize": true
+         }'
+```
+*Because `overlap` is pathologically high (24 on a 25 size), Tokaroo will detect `high_token_redundancy`, correct the overlap, recalculate the chunking, and output the optimized RAG layout.*
 ```
 
 What to look for in the JSON
