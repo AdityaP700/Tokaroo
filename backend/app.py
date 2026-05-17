@@ -173,7 +173,6 @@ def simulate_rag(request: RagChunkRequest):
         
         new_chunk_size = insights["recommended_config"].get("chunk_size", request.chunk_size)
         new_overlap = insights["recommended_config"].get("overlap", request.overlap)
-        new_overlap = min(new_overlap, int(new_chunk_size * 0.2))
         new_top_k = insights["recommended_config"].get("top_k", top_k)
 
         # Re-run with optimized parameters

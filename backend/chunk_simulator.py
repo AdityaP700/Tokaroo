@@ -165,6 +165,9 @@ def simulate_rag_pipeline(
     final_k: int | None = None,
     original_text: str | None = None,
 ) -> dict:
+    if overlap > chunk_size * 0.5:
+        overlap = int(chunk_size * 0.2)
+
     if chunk_size <= overlap:
         raise ValueError("Chunk size must be strictly greater than overlap.")
 

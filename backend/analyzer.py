@@ -120,11 +120,11 @@ def generate_rag_diagnosis(
         spread = max(c["chunk_index"] for c in high_relevance_chunks) - \
              min(c["chunk_index"] for c in high_relevance_chunks)
 
-    if spread > 1:
-        issues.append({
-            "type": "semantic_fragmentation",
-            "severity": "high"
-        })
+        if spread > 1:
+            issues.append({
+                "type": "semantic_fragmentation",
+                "severity": "high"
+            })
     # Check 3: Context Window Truncation
     # FIX: Only trigger on explicit error or when chunks were actually dropped
     if rag_data.get("error") == "context_window_overflow" or (
