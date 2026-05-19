@@ -86,12 +86,12 @@ export const LandingPage: React.FC = () => {
         {/* Cinematic gradient overlay */}
         <div style={{
           position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none',
-          background: 'radial-gradient(circle at center, transparent 40%, #000 100%)'
+          background: 'linear-gradient(90deg, rgba(0,0,0,0.96) 0%, rgba(0,0,0,0.74) 36%, rgba(0,0,0,0.18) 62%, rgba(0,0,0,0.08) 100%)'
         }} />
 
         {/* 3D Canvas Full Bleed on Right */}
         <div style={{
-          position: 'absolute', right: 0, top: 0, bottom: 0, width: '65%', zIndex: 0
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: '72%', zIndex: 0
         }}>
           <SemanticNetworkEngine onStateChange={setEngineState} />
         </div>
