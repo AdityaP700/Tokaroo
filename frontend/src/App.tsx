@@ -1,24 +1,14 @@
 import React, { useState } from 'react';
-import { Sidebar } from './components/Sidebar';
-import { SimulateView } from './components/SimulateView';
-import { CompareView } from './components/CompareView';
-import { RagView } from './components/RagView';
+import { LandingPage } from './components/LandingPage';
+import { MainWorkspace } from './components/Layout/MainWorkspace';
 import './index.css';
 
 function App() {
-  const [currentView, setCurrentView] = useState('simulate');
+  const [page, setPage] = useState<'landing' | 'app'>('landing');
 
-  return (
-    <div className="app-container">
-      <Sidebar currentView={currentView} onViewChange={setCurrentView} />
-      
-      <main className="main-content">
-        {currentView === 'simulate' && <SimulateView />}
-        {currentView === 'compare' && <CompareView />}
-        {currentView === 'rag' && <RagView />}
-      </main>
-    </div>
-  );
+  return page === 'landing'
+    ? <LandingPage onEnter={() => setPage('app')} />
+    : <MainWorkspace />;
 }
 
 export default App;
