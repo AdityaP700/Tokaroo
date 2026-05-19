@@ -9,10 +9,14 @@ interface TokarooState {
     top_k: number;
   };
   simulation: {
+    runId: number;
     chunks: any[];
     edges: any[];
     attention: number[];
     loading: boolean;
+    error: string | null;
+    raw: any | null;
+    request: any | null;
   };
   analysis: {
     diagnosis: string | null;
@@ -39,10 +43,14 @@ export const useStore = create<TokarooState>((set) => ({
     top_k: 5,
   },
   simulation: {
+    runId: 0,
     chunks: [],
     edges: [],
     attention: [],
     loading: false,
+    error: null,
+    raw: null,
+    request: null,
   },
   analysis: {
     diagnosis: null,

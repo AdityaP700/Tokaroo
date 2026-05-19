@@ -14,7 +14,7 @@ export const RagView: React.FC = () => {
     try {
       const data = await apiRequest('/simulate-rag', { 
         text,
-        model: 'gpt-4',
+        model: 'gpt-4o',
         chunk_size: chunkSize,
         overlap: overlap,
         top_k: 5,

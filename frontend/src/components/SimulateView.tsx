@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { apiRequest } from '../api/client';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
 export const SimulateView: React.FC = () => {
   const [text, setText] = useState('Enter a long text here to simulate context window limitations...');
-  const [model, setModel] = useState('gpt-4');
+  const [model, setModel] = useState('gpt-4o');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
 
@@ -44,10 +44,10 @@ export const SimulateView: React.FC = () => {
             <div>
               <label>Model</label>
               <select value={model} onChange={e => setModel(e.target.value)}>
-                <option value="gpt-4">GPT-4 (8k)</option>
-                <option value="gpt-4-turbo">GPT-4 Turbo (128k)</option>
-                <option value="claude-3-opus">Claude 3 Opus (200k)</option>
-                <option value="llama-3-8b">Llama 3 8B (8k)</option>
+                <option value="gpt-4o">GPT-4o (128k)</option>
+                <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (1M)</option>
+                <option value="gemini-3.1-pro">Gemini 3.1 Pro (1M)</option>
+                <option value="llama-3-8b-instruct">Llama 3 8B (8k)</option>
               </select>
             </div>
             

@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
+import { Maximize2, MousePointer2, RotateCcw, Sparkles } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { mockSimulation } from '../../api/mockSimulation';
 
 // ── Neighbour map ─────────────────────────────────────────────────────────
 function buildNeighbourMap(edges: any[]): Map<string, Set<string>> {
@@ -198,10 +198,11 @@ function AttentionView() {
 
 // ── Main component ────────────────────────────────────────────────────────
 export const CoreVisualization: React.FC = () => {
-  const { simulation, ui, setUI, setSimulation } = useStore();
+  const { simulation, ui, setUI } = useStore();
   const fgRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [isInspecting, setIsInspecting] = useState(false);
 
   // Resize
   useEffect(() => {
@@ -217,17 +218,28 @@ export const CoreVisualization: React.FC = () => {
   // Physics
   useEffect(() => {
     if (!fgRef.current) return;
-    fgRef.current.d3Force('charge')?.strength(-200);
-  }, [simulation.chunks]);
+    fgRef.current.d3Force('charge')?.strength(-260);
+    fgRef.current.d3Force('link')?.distance((link: any) => 80 - Math.min(45, (link.weight ?? 0.4) * 45));
+    fgRef.current.d3ReheatSimulation?.();
+    window.setTimeout(() => {
+      fgRef.current?.zoomToFit?.(650, 80);
+    }, 120);
+  }, [simulation.runId, simulation.chunks.length]);
 
   // Neighbour map
   const neighbourMap = useMemo(() => buildNeighbourMap(simulation.edges), [simulation.edges]);
 
   // Graph data
   const graphData = useMemo(() => ({
-    nodes: simulation.chunks.map(c => ({ ...c, val: Math.max(1, c.size / 60) })),
-    links: simulation.edges,
-  }), [simulation.chunks, simulation.edges]);
+    nodes: simulation.chunks.map((c, i) => ({
+      ...c,
+      val: Math.max(1, c.size / 60),
+      fx: c.fx,
+      fy: c.fy,
+      seed: i,
+    })),
+    links: simulation.edges.map((edge, i) => ({ ...edge, id: `${simulation.runId}-edge-${i}` })),
+  }), [simulation.runId, simulation.chunks, simulation.edges]);
 
   // Handlers
   const handleNodeHover = useCallback((node: any) => {
@@ -240,8 +252,10 @@ export const CoreVisualization: React.FC = () => {
     if (!alreadySelected && fgRef.current) {
       fgRef.current.centerAt(node.x, node.y, 600);
       fgRef.current.zoom(2.0, 700);
+      setIsInspecting(true);
     } else if (alreadySelected && fgRef.current) {
       fgRef.current.zoom(1, 400);
+      setIsInspecting(false);
     }
   }, [ui.selectedNode, setUI]);
 
@@ -249,8 +263,22 @@ export const CoreVisualization: React.FC = () => {
     if (ui.selectedNode) {
       setUI({ selectedNode: null });
       fgRef.current?.zoom(1, 400);
+      setIsInspecting(false);
     }
   }, [ui.selectedNode, setUI]);
+
+  const fitGraph = useCallback(() => {
+    fgRef.current?.zoomToFit?.(650, 90);
+    setIsInspecting(false);
+  }, []);
+
+  const releasePinnedNodes = useCallback(() => {
+    simulation.chunks.forEach((node) => {
+      node.fx = undefined;
+      node.fy = undefined;
+    });
+    fgRef.current?.d3ReheatSimulation?.();
+  }, [simulation.chunks]);
 
   // Node painter
   const renderNode = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -263,26 +291,37 @@ export const CoreVisualization: React.FC = () => {
 
     const hasFocus = selectedNode === null || isSelected || isNeighbour;
     const opacity  = hasFocus ? 1 : 0.1;
-    const radius   = Math.max(4, (node.size / 60) * 4);
+    const attention = Math.max(0, Math.min(1, node.attention ?? 0));
+    const relevance = Math.max(0, Math.min(1, node.relevance ?? 0));
+    const radius   = Math.max(5, Math.min(22, 5 + node.size / 18));
 
-    let fill = '#2A2A2A';
+    let fill = `rgba(110, 118, 129, ${0.35 + attention * 0.45})`;
     let stroke = 'transparent';
-    let shadowBlur = 0;
+    let shadowBlur = 4 + attention * 12;
     let shadowColor = 'transparent';
 
-    if (isRisk)          { fill = '#DC2626'; }
+    if (isRisk)          { fill = '#DC2626'; shadowColor = 'rgba(220,38,38,0.28)'; }
     else if (isSelected) { fill = '#FFFFFF'; }
-    else if (isNeighbour){ fill = '#A1A1AA'; }
+    else if (isNeighbour){ fill = '#A1A1AA'; shadowColor = 'rgba(255,255,255,0.14)'; }
+    else if (node.used_by_model) { fill = `rgba(232, 240, 255, ${0.45 + relevance * 0.4})`; shadowColor = 'rgba(255,255,255,0.10)'; }
 
     if (isSelected || isHovered) {
       stroke     = isSelected ? '#FFFFFF' : '#525252';
-      shadowBlur = isSelected ? 14 : 6;
+      shadowBlur = isSelected ? 24 : 12;
       shadowColor = isSelected ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.08)';
     }
 
     ctx.globalAlpha = opacity;
     ctx.shadowBlur  = shadowBlur;
     ctx.shadowColor = shadowColor;
+
+    if (isSelected || isHovered || node.used_by_model) {
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius + 7 + attention * 8, 0, 2 * Math.PI);
+      ctx.strokeStyle = isRisk ? 'rgba(220,38,38,0.25)' : `rgba(255,255,255,${0.06 + attention * 0.12})`;
+      ctx.lineWidth = (isSelected ? 2.2 : 1.2) / globalScale;
+      ctx.stroke();
+    }
 
     ctx.beginPath();
     ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI);
@@ -299,7 +338,7 @@ export const CoreVisualization: React.FC = () => {
     ctx.shadowBlur  = 0;
 
     if (isSelected) {
-      const label    = node.id;
+      const label    = node.display_id ?? node.id;
       const fontSize = Math.max(8, 10 / globalScale);
       ctx.font      = `600 ${fontSize}px Inter, sans-serif`;
       ctx.fillStyle = 'rgba(250,250,250,0.7)';
@@ -308,25 +347,21 @@ export const CoreVisualization: React.FC = () => {
     }
   }, [neighbourMap]);
 
-  // Seed demo
-  useEffect(() => {
-    if (simulation.chunks.length === 0) {
-      const demo = mockSimulation({ top_k: 9, chunk_size: 120, overlap: 20 });
-      setSimulation({ chunks: demo.chunks, edges: demo.edges, attention: demo.attention });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const isEmpty = simulation.chunks.length === 0;
+  const graphStats = useMemo(() => {
+    const used = simulation.chunks.filter((chunk) => chunk.used_by_model).length;
+    const risk = simulation.chunks.filter((chunk) => chunk.risk_level === 'high').length;
+    const avgAttention = simulation.attention.length
+      ? simulation.attention.reduce((sum, value) => sum + value, 0) / simulation.attention.length
+      : 0;
+    return { used, risk, avgAttention };
+  }, [simulation.chunks, simulation.attention]);
 
   return (
-    <div ref={containerRef} className="panel" style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+    <div ref={containerRef} className="panel graph-stage" style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
 
       {/* Ambient glow */}
-      <div style={{
-        position: 'absolute', inset: 0, pointerEvents: 'none',
-        background: 'radial-gradient(ellipse 50% 40% at 50% 50%, rgba(255,255,255,0.02) 0%, transparent 70%)',
-      }} />
+      <div className="graph-aurora" />
 
       {/* View tabs */}
       <div style={{
@@ -348,10 +383,65 @@ export const CoreVisualization: React.FC = () => {
         ))}
       </div>
 
+      <div style={{
+        position: 'absolute', top: '1rem', left: '1rem', zIndex: 10,
+        display: 'flex', alignItems: 'center', gap: '8px',
+        padding: '7px 10px', borderRadius: '999px',
+        background: 'rgba(18,18,18,0.72)', border: '1px solid var(--border)',
+        backdropFilter: 'blur(14px)', color: 'var(--text-secondary)', fontSize: '12px',
+      }}>
+        <Sparkles size={14} />
+        <span>{isEmpty ? 'Awaiting context' : `Run ${simulation.runId} live`}</span>
+      </div>
+
+      {!isEmpty && (
+        <div style={{
+          position: 'absolute', right: '1rem', top: '1rem', zIndex: 10,
+          display: 'grid', gridTemplateColumns: 'repeat(3, minmax(74px, 1fr))', gap: '6px',
+        }}>
+          {[
+            { k: 'Used', v: `${graphStats.used}/${simulation.chunks.length}` },
+            { k: 'Risk', v: graphStats.risk, danger: graphStats.risk > 0 },
+            { k: 'Avg Attn', v: `${(graphStats.avgAttention * 100).toFixed(0)}%` },
+          ].map((item) => (
+            <div key={item.k} style={{
+              padding: '7px 9px', borderRadius: '8px',
+              background: 'rgba(18,18,18,0.72)', border: `1px solid ${item.danger ? 'rgba(220,38,38,0.42)' : 'var(--border)'}`,
+              backdropFilter: 'blur(14px)',
+            }}>
+              <div className="label" style={{ fontSize: '9px', marginBottom: '1px' }}>{item.k}</div>
+              <div className="value-mono" style={{ color: item.danger ? 'var(--danger)' : 'var(--text-primary)' }}>{item.v}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{
+        position: 'absolute', left: '1rem', bottom: '1rem', zIndex: 10,
+        display: 'flex', gap: '6px', alignItems: 'center',
+      }}>
+        <button className="btn-ghost icon-btn" onClick={fitGraph} title="Fit graph">
+          <Maximize2 size={14} />
+          <span>Fit</span>
+        </button>
+        <button className="btn-ghost icon-btn" onClick={releasePinnedNodes} title="Release dragged nodes">
+          <RotateCcw size={14} />
+          <span>Release</span>
+        </button>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: '6px',
+          color: 'var(--text-muted)', fontSize: '11px', marginLeft: '4px',
+        }}>
+          <MousePointer2 size={13} />
+          <span>{isInspecting ? 'Inspecting chunk' : 'Drag, hover, click'}</span>
+        </div>
+      </div>
+
       {/* ── GRAPH view ──────────────────────────────────────────────────── */}
       {ui.view === 'graph' && (
         <>
           <ForceGraph2D
+            key={`graph-${simulation.runId}-${dimensions.width}x${dimensions.height}`}
             ref={fgRef}
             width={dimensions.width}
             height={dimensions.height}
@@ -361,6 +451,10 @@ export const CoreVisualization: React.FC = () => {
             onNodeHover={handleNodeHover}
             onNodeClick={handleNodeClick}
             onBackgroundClick={handleBgClick}
+            onNodeDragEnd={(node: any) => {
+              node.fx = node.x;
+              node.fy = node.y;
+            }}
             linkColor={() => 'rgba(255,255,255,0.12)'}
             linkWidth={(link: any) => Math.max(1, (link.weight ?? 0.5) * 2)}
             linkDirectionalParticles={2}

@@ -41,6 +41,8 @@ function Divider() {
 export const AnalysisEngine: React.FC = () => {
   const { analysis, simulation, ui, setUI } = useStore();
   const selectedChunk = simulation.chunks.find(c => c.id === ui.selectedNode);
+  const raw = simulation.raw;
+  const request = simulation.request;
 
   return (
     <div className="panel" style={{
@@ -57,6 +59,75 @@ export const AnalysisEngine: React.FC = () => {
 
       {/* Health */}
       <HealthOrb score={analysis.health_score} />
+
+      {raw && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '8px',
+          padding: '10px 12px',
+          background: 'var(--elevated)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-sm)',
+        }}>
+          {[
+            { k: 'Model', v: raw.model },
+            { k: 'Mode', v: raw.retrieval_mode ?? 'rag' },
+            { k: 'Chunks', v: `${raw.chunks_in_prompt}/${raw.total_chunks_created}` },
+            { k: 'Reranked', v: raw.reranked ? 'true' : 'false' },
+            { k: 'Waste', v: raw.attention_waste == null ? '0%' : `${(raw.attention_waste * 100).toFixed(0)}%` },
+            { k: 'Overlap +', v: `${raw.extra_tokens_due_to_overlap}t` },
+          ].map(({ k, v }) => (
+            <div key={k}>
+              <div className="label" style={{ marginBottom: '2px' }}>{k}</div>
+              <div className="value-mono" style={{ fontSize: '12px' }}>{v}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(request || raw) && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <details style={{
+            background: 'var(--elevated)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '9px 10px',
+          }}>
+            <summary style={{ cursor: 'pointer', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 700 }}>
+              Backend request
+            </summary>
+            <pre style={{
+              marginTop: '8px',
+              maxHeight: '150px',
+              overflow: 'auto',
+              color: 'var(--text-muted)',
+              fontSize: '10px',
+              lineHeight: 1.5,
+              whiteSpace: 'pre-wrap',
+            }}>{JSON.stringify(request, null, 2)}</pre>
+          </details>
+          <details style={{
+            background: 'var(--elevated)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '9px 10px',
+          }}>
+            <summary style={{ cursor: 'pointer', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 700 }}>
+              Backend response
+            </summary>
+            <pre style={{
+              marginTop: '8px',
+              maxHeight: '190px',
+              overflow: 'auto',
+              color: 'var(--text-muted)',
+              fontSize: '10px',
+              lineHeight: 1.5,
+              whiteSpace: 'pre-wrap',
+            }}>{JSON.stringify(raw, null, 2)}</pre>
+          </details>
+        </div>
+      )}
 
       {/* Issues */}
       {analysis.issues && analysis.issues.length > 0 && (
@@ -101,7 +172,7 @@ export const AnalysisEngine: React.FC = () => {
                 width: '6px', height: '6px', borderRadius: '50%',
                 background: selectedChunk.risk_level === 'high' ? 'var(--danger)' : '#FAFAFA',
               }} />
-              <span className="value-mono" style={{ fontSize: '13px' }}>{selectedChunk.id}</span>
+              <span className="value-mono" style={{ fontSize: '13px' }}>{selectedChunk.display_id ?? selectedChunk.id}</span>
             </div>
 
             {/* Metrics */}
@@ -110,7 +181,7 @@ export const AnalysisEngine: React.FC = () => {
                 { k: 'Tokens',    v: `${selectedChunk.size}` },
                 { k: 'Relevance', v: `${(selectedChunk.relevance * 100).toFixed(1)}%` },
                 { k: 'Attention', v: `${(selectedChunk.attention * 100).toFixed(1)}%` },
-                { k: 'Risk',      v: selectedChunk.risk_level },
+                { k: 'Risk',      v: selectedChunk.risk_label ?? selectedChunk.risk_level },
               ].map(({ k, v }) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{k}</span>

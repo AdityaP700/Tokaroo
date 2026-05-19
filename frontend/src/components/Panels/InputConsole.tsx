@@ -1,13 +1,69 @@
 import React, { useMemo } from 'react';
 import { useStore } from '../../store/useStore';
-import { mockSimulation } from '../../api/mockSimulation';
+import { apiRequest, type RagResponse } from '../../api/client';
 
 const MODELS = [
   { id: 'gpt-4o',        label: 'GPT-4o',         ctx: '128k' },
-  { id: 'gpt-4',         label: 'GPT-4',           ctx: '8k'   },
-  { id: 'claude-3-opus', label: 'Claude 3 Opus',   ctx: '200k' },
-  { id: 'llama-3-8b',    label: 'Llama 3 8B',      ctx: '8k'   },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', ctx: '1M' },
+  { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro', ctx: '1M' },
+  { id: 'llama-3-8b-instruct', label: 'Llama 3 8B', ctx: '8k' },
 ];
+
+function riskKind(riskLevel: string) {
+  const value = riskLevel.toLowerCase();
+  if (value.includes('critical') || value.includes('high')) return 'high';
+  if (value.includes('medium')) return 'medium';
+  return 'low';
+}
+
+function severityFromBackend(severity: string) {
+  const value = severity.toLowerCase();
+  if (value.includes('critical') || value.includes('high')) return 'error';
+  if (value.includes('medium') || value.includes('warning')) return 'warning';
+  return 'info';
+}
+
+function graphFromRagResponse(result: RagResponse, runId: number) {
+  const chunks = result.chunks.map((chunk, index) => ({
+    id: `run-${runId}-chunk-${chunk.chunk_index}`,
+    display_id: `chunk-${chunk.chunk_index}`,
+    chunk_index: chunk.chunk_index,
+    size: chunk.token_count,
+    relevance: chunk.relevance_score ?? chunk.similarity_score ?? 0,
+    attention: chunk.attention_weight ?? chunk.positional_weight ?? 0,
+    final_importance: chunk.final_importance,
+    risk_level: riskKind(chunk.risk_level),
+    risk_label: chunk.risk_level,
+    used_by_model: chunk.used_by_model ?? false,
+    lost_reason: chunk.lost_reason,
+    boundary_snippet: chunk.boundary_snippet,
+    start_token: chunk.start_token,
+    end_token: chunk.end_token,
+    x: Math.cos(index * 1.9) * (80 + index * 10),
+    y: Math.sin(index * 1.9) * (80 + index * 10),
+  }));
+
+  const edges = chunks.slice(1).map((chunk, index) => ({
+    source: chunks[index].id,
+    target: chunk.id,
+    weight: Math.max(0.2, Math.min(1, (chunks[index].relevance + chunk.relevance) / 2)),
+  }));
+
+  const usedChunks = chunks.filter((chunk) => chunk.used_by_model);
+  for (let i = 1; i < usedChunks.length; i += 1) {
+    edges.push({
+      source: usedChunks[i - 1].id,
+      target: usedChunks[i].id,
+      weight: 0.85,
+    });
+  }
+
+  const attention = result.optimization.attention_curve?.length
+    ? result.optimization.attention_curve
+    : chunks.map((chunk) => chunk.attention);
+
+  return { chunks, edges, attention };
+}
 
 function Divider() {
   return <div style={{ height: '1px', background: 'var(--border)', margin: '0.25rem 0' }} />;
@@ -40,7 +96,7 @@ function SliderField({ label, value, min, max, step, unit, onChange }: {
 }
 
 export const InputConsole: React.FC = () => {
-  const { input, simulation, setInput, setSimulation, setAnalysis } = useStore();
+  const { input, simulation, setInput, setSimulation, setAnalysis, setUI } = useStore();
 
   const estimatedTokens = useMemo(() => Math.ceil(input.text.length / 4), [input.text]);
   const estimatedChunks = useMemo(() => {
@@ -49,22 +105,57 @@ export const InputConsole: React.FC = () => {
     return Math.max(1, Math.ceil(estimatedTokens / effective));
   }, [estimatedTokens, input.chunk_size, input.overlap]);
 
-  const handleSimulate = () => {
-    setSimulation({ loading: true, chunks: [], edges: [], attention: [] });
-    setTimeout(() => {
-      const result = mockSimulation(input);
-      const highRisk = result.chunks.filter((c: any) => c.risk_level === 'high').length;
-      const avgRel   = result.chunks.reduce((s: number, c: any) => s + c.relevance, 0) / result.chunks.length;
-      const health   = Math.round(Math.max(20, avgRel * 100 - highRisk * 10));
-      const issues: any[] = [];
-      if (highRisk > 0) issues.push({ type: 'high_risk_chunks', label: `${highRisk} high-risk chunks`, severity: 'warning' });
-      if (avgRel < 0.55) issues.push({ type: 'weak_query_match', label: 'Low average relevance', severity: 'error' });
-      setSimulation({ chunks: result.chunks, edges: result.edges, attention: result.attention, loading: false });
-      setAnalysis({ health_score: health, issues, diagnosis: issues.length === 0 ? 'optimal' : issues[0].type });
-    }, 1300);
+  const handleSimulate = async () => {
+    const nextRunId = simulation.runId + 1;
+    const requestPayload = {
+      text: input.text,
+      model: input.model,
+      chunk_size: input.chunk_size,
+      overlap: input.overlap,
+      top_k: input.top_k,
+      final_k: Math.min(4, input.top_k),
+      retrieval_strategy: 'relevance_sorted',
+      auto_optimize: true,
+    };
+    setUI({ selectedNode: null, hoveredNode: null, view: 'graph' });
+    setSimulation({ runId: nextRunId, loading: true, chunks: [], edges: [], attention: [], error: null, raw: null, request: requestPayload });
+
+    try {
+      const result = await apiRequest<RagResponse>('/simulate-rag', requestPayload);
+
+      const graph = graphFromRagResponse(result, nextRunId);
+      const backendIssues = result.optimization.issues ?? [];
+      const issues = backendIssues.length > 0
+        ? backendIssues.map((issue) => ({
+            type: issue.type,
+            label: `${issue.type.replaceAll('_', ' ')} (${issue.severity})`,
+            severity: severityFromBackend(issue.severity),
+          }))
+        : [{
+            type: result.optimization.diagnosis.primary_issue,
+            label: result.optimization.diagnosis.short_summary,
+            severity: 'info',
+          }];
+
+      setSimulation({ runId: nextRunId, ...graph, loading: false, error: result.error, raw: result, request: requestPayload });
+      setAnalysis({
+        health_score: result.optimization.health_score ?? 0,
+        issues,
+        diagnosis: result.optimization.diagnosis.primary_issue,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to reach Tokaroo backend.';
+      setSimulation({ runId: nextRunId, loading: false, chunks: [], edges: [], attention: [], error: message, raw: null, request: requestPayload });
+      setAnalysis({
+        health_score: 0,
+        issues: [{ type: 'backend_unavailable', label: message, severity: 'error' }],
+        diagnosis: 'backend_unavailable',
+      });
+    }
   };
 
   const isLoading = simulation.loading;
+  const canRun = input.text.trim().length > 0 && !isLoading;
 
   return (
     <div className="panel" style={{
@@ -121,13 +212,27 @@ export const InputConsole: React.FC = () => {
         </div>
       </div>
 
+      {simulation.error && (
+        <div style={{
+          padding: '10px 12px',
+          background: 'rgba(220,38,38,0.08)',
+          border: '1px solid rgba(220,38,38,0.28)',
+          borderRadius: 'var(--radius-sm)',
+          color: 'var(--danger)',
+          fontSize: '12px',
+          lineHeight: 1.45,
+        }}>
+          {simulation.error}
+        </div>
+      )}
+
       <div style={{ flex: 1 }} />
 
       {/* CTA button — pure white, prominent */}
       <div style={{ paddingTop: '0.5rem' }}>
-        <button className="btn-primary" onClick={handleSimulate} disabled={isLoading}
+        <button className="btn-primary" onClick={handleSimulate} disabled={!canRun}
           style={{ fontSize: '15px', padding: '0.85rem' }}>
-          {isLoading ? '· · ·' : '▶  Run Simulation'}
+          {isLoading ? 'Loading' : 'Run Simulation'}
         </button>
       </div>
     </div>

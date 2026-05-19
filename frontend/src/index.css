@@ -59,6 +59,32 @@ html, body, #root {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }
+
+.graph-stage {
+  background:
+    radial-gradient(circle at 52% 48%, rgba(255,255,255,0.055), transparent 28%),
+    linear-gradient(135deg, rgba(255,255,255,0.035), transparent 38%),
+    var(--surface);
+}
+
+.graph-aurora {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 42% 34% at 52% 48%, rgba(255,255,255,0.045) 0%, transparent 72%),
+    radial-gradient(ellipse 28% 26% at 70% 30%, rgba(22,163,74,0.06) 0%, transparent 68%),
+    linear-gradient(90deg, rgba(255,255,255,0.025), transparent 28%, rgba(255,255,255,0.018));
+  opacity: 0.95;
+}
+
+.graph-stage canvas {
+  cursor: grab;
+}
+
+.graph-stage canvas:active {
+  cursor: grabbing;
+}
 .panel-elevated {
   background: var(--elevated);
   border: 1px solid var(--border);
@@ -182,6 +208,16 @@ textarea::placeholder { color: var(--text-muted); }
   background: var(--elevated);
   color: var(--text-primary);
   border-color: var(--border-hi);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  padding: 0.45rem 0.65rem;
+  background: rgba(18,18,18,0.72);
+  backdrop-filter: blur(14px);
 }
 
 /* ── Focus ──────────────────────────────────────────────────────────────── */

@@ -275,7 +275,7 @@ export const LandingPage: React.FC = () => {
           Start understanding your RAG pipeline
         </h2>
         <p style={{ color: 'var(--text-secondary)', fontSize: '1.05rem', margin: 0 }}>
-          No backend required. Runs entirely in your browser.
+          Connected to the Tokaroo backend. Real diagnostics, real chunk analysis, no mock graph.
         </p>
         <button className="btn-primary" onClick={goToApp} style={{ width: 'auto', padding: '0.85rem 2.25rem', fontSize: '15px' }}>
           Open Simulator  →

@@ -86,7 +86,7 @@ export const BottomPanel: React.FC = () => {
                       color: isSelected ? '#000' : `rgba(0,0,0,${Math.min(brightness * 1.5, 0.5).toFixed(2)})`,
                       pointerEvents: 'none',
                     }}>
-                      {i + 1}
+                      {chunk.chunk_index ?? i + 1}
                     </div>
                   )}
                 </div>
