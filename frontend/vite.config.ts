@@ -8,4 +8,8 @@ export default defineConfig({
     react(),
     babel({ presets: [reactCompilerPreset()] })
   ],
+  server: {
+    // Enable SPA fallback so routes like /app/context work on refresh
+    historyApiFallback: true,
+  },
 })

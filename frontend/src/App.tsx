@@ -1,14 +1,19 @@
-import React, { useState } from 'react';
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LandingPage } from './components/LandingPage';
 import { MainWorkspace } from './components/Layout/MainWorkspace';
 import './index.css';
 
 function App() {
-  const [page, setPage] = useState<'landing' | 'app'>('landing');
-
-  return page === 'landing'
-    ? <LandingPage onEnter={() => setPage('app')} />
-    : <MainWorkspace />;
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/app" element={<Navigate to="/app/context" replace />} />
+        <Route path="/app/:view" element={<MainWorkspace />} />
+      </Routes>
+    </BrowserRouter>
+  );
 }
 
 export default App;

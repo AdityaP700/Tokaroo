@@ -29,9 +29,9 @@ function SliderField({ label, value, min, max, step, unit, onChange }: {
   return (
     <Field label={label}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{min}{unit}</span>
-        <span className="value-mono" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>{value}{unit}</span>
-        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{max}{unit}</span>
+        <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{min}{unit}</span>
+        <span className="value-mono" style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>{value}{unit}</span>
+        <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{max}{unit}</span>
       </div>
       <input type="range" min={min} max={max} step={step} value={value}
         onChange={(e) => onChange(parseInt(e.target.value))} />
@@ -73,7 +73,7 @@ export const InputConsole: React.FC = () => {
       {/* Header */}
       <div>
         <div className="label" style={{ marginBottom: '4px' }}>Control Console</div>
-        <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>Input Config</div>
+        <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>Input Config</div>
       </div>
 
       <Divider />
@@ -123,10 +123,13 @@ export const InputConsole: React.FC = () => {
 
       <div style={{ flex: 1 }} />
 
-      {/* CTA button — pure white */}
-      <button className="btn-primary" onClick={handleSimulate} disabled={isLoading}>
-        {isLoading ? '· · ·' : '▶  Run Simulation'}
-      </button>
+      {/* CTA button — pure white, prominent */}
+      <div style={{ paddingTop: '0.5rem' }}>
+        <button className="btn-primary" onClick={handleSimulate} disabled={isLoading}
+          style={{ fontSize: '15px', padding: '0.85rem' }}>
+          {isLoading ? '· · ·' : '▶  Run Simulation'}
+        </button>
+      </div>
     </div>
   );
 };

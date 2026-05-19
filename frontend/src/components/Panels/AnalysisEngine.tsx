@@ -22,12 +22,12 @@ function HealthOrb({ score }: { score: number }) {
           position: 'absolute', inset: '4px', borderRadius: '50%',
           background: `${color}18`,
         }} />
-        <span className="value-mono" style={{ fontSize: '13px', fontWeight: 700, color, position: 'relative' }}>
+        <span className="value-mono" style={{ fontSize: '15px', fontWeight: 700, color, position: 'relative' }}>
           {score}
         </span>
       </div>
       <div>
-        <div style={{ fontWeight: 600, color, fontSize: '13px' }}>{label}</div>
+        <div style={{ fontWeight: 600, color, fontSize: '14px' }}>{label}</div>
         <div className="label" style={{ marginTop: '2px' }}>System Health</div>
       </div>
     </div>
@@ -50,7 +50,7 @@ export const AnalysisEngine: React.FC = () => {
       {/* Header */}
       <div>
         <div className="label" style={{ marginBottom: '4px' }}>Diagnosis</div>
-        <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>Analysis Engine</div>
+        <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>Analysis Engine</div>
       </div>
 
       <Divider />
@@ -75,8 +75,8 @@ export const AnalysisEngine: React.FC = () => {
                   background: s.color, marginTop: '3px', flexShrink: 0,
                 }} />
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{issue.label}</div>
-                  <div style={{ fontSize: '10px', color: s.color, fontWeight: 600, marginTop: '2px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{issue.label}</div>
+                  <div style={{ fontSize: '11px', color: s.color, fontWeight: 600, marginTop: '2px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</div>
                 </div>
               </div>
             );
@@ -84,14 +84,12 @@ export const AnalysisEngine: React.FC = () => {
         </div>
       )}
 
-      <Divider />
-
-      {/* Selected node */}
-      <div>
-        <div className="label" style={{ marginBottom: '8px' }}>Selected Node</div>
-
-        {selectedChunk ? (
+      {/* Divider + Selected node — only when selected */}
+      {selectedChunk && (
+        <>
+          <Divider />
           <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div className="label" style={{ marginBottom: '4px' }}>Selected Node</div>
             {/* ID */}
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: '6px',
@@ -103,10 +101,10 @@ export const AnalysisEngine: React.FC = () => {
                 width: '6px', height: '6px', borderRadius: '50%',
                 background: selectedChunk.risk_level === 'high' ? 'var(--danger)' : '#FAFAFA',
               }} />
-              <span className="value-mono" style={{ fontSize: '12px' }}>{selectedChunk.id}</span>
+              <span className="value-mono" style={{ fontSize: '13px' }}>{selectedChunk.id}</span>
             </div>
 
-            {/* Metrics table */}
+            {/* Metrics */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {[
                 { k: 'Tokens',    v: `${selectedChunk.size}` },
@@ -115,9 +113,9 @@ export const AnalysisEngine: React.FC = () => {
                 { k: 'Risk',      v: selectedChunk.risk_level },
               ].map(({ k, v }) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{k}</span>
+                  <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{k}</span>
                   <span className="value-mono" style={{
-                    fontSize: '12px',
+                    fontSize: '13px',
                     color: k === 'Risk' && selectedChunk.risk_level === 'high'
                       ? 'var(--danger)'
                       : 'var(--text-primary)',
@@ -141,18 +139,8 @@ export const AnalysisEngine: React.FC = () => {
               Clear selection
             </button>
           </div>
-        ) : (
-          <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', height: '80px', gap: '6px',
-          }}>
-            <div style={{ fontSize: '18px', color: 'var(--border-hi)' }}>◎</div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.5 }}>
-              Click a node to inspect
-            </div>
-          </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 };

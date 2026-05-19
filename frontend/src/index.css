@@ -5,19 +5,20 @@
 
 /* ── Design tokens ──────────────────────────────────────────────────────── */
 :root {
-  /* Base surfaces */
-  --bg:        #0A0A0A;
-  --surface:   #111111;
-  --elevated:  #1A1A1A;
-  --border:    #262626;
-  --border-hi: #333333;
+  /* 4-level depth system */
+  --bg:         #0A0A0A;
+  --surface:    #111111;
+  --elevated:   #181818;
+  --raised:     #222222;
+  --border:     #262626;
+  --border-hi:  #333333;
 
   /* Text */
   --text-primary:   #FAFAFA;
   --text-secondary: #A1A1AA;
   --text-muted:     #52525B;
 
-  /* Accent — only one */
+  /* Accent — only white */
   --accent: #FFFFFF;
 
   /* Semantic (analysis panel only) */
@@ -25,7 +26,7 @@
   --success: #16A34A;
   --warning: #D97706;
 
-  /* Typography scale */
+  /* Typography */
   --font-sans: 'Inter', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
@@ -52,25 +53,35 @@ html, body, #root {
 ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: #444; }
 
-/* ── Panel ──────────────────────────────────────────────────────────────── */
+/* ── Panel — 3 depth variants ───────────────────────────────────────────── */
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }
+.panel-elevated {
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.panel-raised {
+  background: var(--raised);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-sm);
+}
 
 /* ── Typography helpers ─────────────────────────────────────────────────── */
 .label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
 
 .value-mono {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-primary);
 }
 
@@ -86,7 +97,7 @@ input[type="range"] {
 }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 13px; height: 13px;
+  width: 14px; height: 14px;
   border-radius: 50%;
   background: var(--text-primary);
   border: 2px solid var(--border-hi);
@@ -100,8 +111,8 @@ select {
   border: 1px solid var(--border);
   color: var(--text-primary);
   border-radius: var(--radius-sm);
-  padding: 0.45rem 0.65rem;
-  font-size: 13px;
+  padding: 0.5rem 0.75rem;
+  font-size: 14px;
   font-family: var(--font-sans);
   width: 100%;
   cursor: pointer;
@@ -120,9 +131,9 @@ textarea {
   color: var(--text-primary);
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
-  padding: 0.6rem 0.75rem;
+  padding: 0.65rem 0.85rem;
   resize: none;
   outline: none;
   transition: border-color 0.15s;
@@ -137,20 +148,22 @@ textarea::placeholder { color: var(--text-muted); }
   color: #000;
   border: none;
   border-radius: var(--radius-sm);
-  padding: 0.65rem 1.25rem;
+  padding: 0.75rem 1.25rem;
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
+  transition: background 0.15s, box-shadow 0.2s, transform 0.1s;
   width: 100%;
+  box-shadow: 0 2px 12px rgba(255,255,255,0.06);
 }
-.btn-primary:hover { background: #E5E5E5; }
+.btn-primary:hover { background: #E5E5E5; box-shadow: 0 4px 20px rgba(255,255,255,0.08); }
 .btn-primary:active { transform: scale(0.99); }
 .btn-primary:disabled {
   background: var(--elevated);
   color: var(--text-muted);
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .btn-ghost {
@@ -158,9 +171,10 @@ textarea::placeholder { color: var(--text-muted); }
   color: var(--text-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 0.4rem 0.75rem;
-  font-size: 12px;
+  padding: 0.5rem 0.85rem;
+  font-size: 13px;
   font-weight: 500;
+  font-family: var(--font-sans);
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -179,3 +193,11 @@ button:focus-visible { outline: 1px solid #555; outline-offset: 2px; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 .fade-in { animation: fadeIn 0.3s ease; }
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .sidebar-full { display: none !important; }
+  .sidebar-collapsed { display: flex !important; }
+  .app-panels { flex-direction: column !important; }
+  .panel-side { width: 100% !important; max-height: 260px; overflow-y: auto; }
+}
