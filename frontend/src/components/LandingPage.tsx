@@ -1,28 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import ForceGraph2D from 'react-force-graph-2d';
-import { mockSimulation } from '../api/mockSimulation';
-
-// ── Demo graph data ──────────────────────────────────────────────────────
-const DEMO = mockSimulation({ top_k: 16, chunk_size: 120, overlap: 20 });
-const GRAPH_DATA = {
-  nodes: DEMO.chunks.map(c => ({ ...c, val: Math.max(1, c.size / 60) })),
-  links: DEMO.edges,
-};
-
-function renderDemoNode(node: any, ctx: CanvasRenderingContext2D) {
-  const radius = Math.max(3, (node.size / 60) * 3.5);
-  const isRisk = node.risk_level === 'high';
-  ctx.beginPath();
-  ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI);
-  ctx.fillStyle = isRisk ? 'rgba(220,38,38,0.4)' : 'rgba(250,250,250,0.1)';
-  ctx.fill();
-  if (node.attention > 0.7) {
-    ctx.lineWidth = 0.6;
-    ctx.strokeStyle = 'rgba(250,250,250,0.2)';
-    ctx.stroke();
-  }
-}
+import { SemanticNetworkEngine } from './SemanticNetworkEngine';
 
 // ── Scroll fade-in hook ──────────────────────────────────────────────────
 function useScrollReveal(threshold = 0.15) {
@@ -60,6 +38,8 @@ export const LandingPage: React.FC = () => {
   const fgRef = useRef<any>(null);
   const goToApp = () => navigate('/app/context');
 
+  const [engineState, setEngineState] = useState<'normal' | 'failure' | 'recovery'>('normal');
+
   // Reveal hooks for each section
   const failuresReveal = useScrollReveal();
   const pipelineReveal = useScrollReveal();
@@ -95,68 +75,72 @@ export const LandingPage: React.FC = () => {
 
       {/* ── HERO ───────────────────────────────────────────────────────── */}
       <section style={{
-        minHeight: '90vh', display: 'grid', gridTemplateColumns: '1fr 1fr',
-        alignItems: 'center', padding: '0 5rem', gap: '4rem',
-        maxWidth: '1280px', margin: '0 auto',
+        position: 'relative',
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 5rem',
+        overflow: 'hidden',
+        background: '#050505',
       }}>
-        {/* Left */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: '6px',
-            padding: '5px 12px', background: 'var(--elevated)', border: '1px solid var(--border)',
-            borderRadius: '99px', width: 'fit-content',
-          }}>
-            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success)' }} />
-            <span className="label" style={{ color: 'var(--text-secondary)' }}>Open Beta</span>
-          </div>
+        {/* Cinematic gradient overlay */}
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none',
+          background: 'radial-gradient(circle at center, transparent 40%, #000 100%)'
+        }} />
 
-          <h1 style={{ fontSize: '3.5rem', fontWeight: 800, lineHeight: 1.06, letterSpacing: '-0.04em', margin: 0 }}>
-            Debug how your AI<br />actually reasons
-          </h1>
-
-          <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0, maxWidth: '440px' }}>
-            Visualize attention decay, chunking failures, and retrieval blind spots inside LLM context windows.
-          </p>
-
-          <div style={{ display: 'flex', gap: '10px', marginTop: '0.5rem' }}>
-            <button className="btn-primary" onClick={goToApp} style={{ width: 'auto', padding: '0.85rem 1.75rem', fontSize: '15px' }}>
-              Start Simulation
-            </button>
-            <button className="btn-ghost" onClick={goToApp} style={{ padding: '0.85rem 1.75rem', fontSize: '15px' }}>
-              View Demo  →
-            </button>
-          </div>
+        {/* 3D Canvas Full Bleed on Right */}
+        <div style={{
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: '65%', zIndex: 0
+        }}>
+          <SemanticNetworkEngine onStateChange={setEngineState} />
         </div>
 
-        {/* Right — animated graph */}
-        <div style={{
-          height: '480px', borderRadius: '16px', overflow: 'hidden',
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          position: 'relative',
-        }}>
+        {/* Content (Left) */}
+        <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', gap: '2rem', maxWidth: '600px', pointerEvents: 'none' }}>
           <div style={{
-            position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1,
-            background: 'radial-gradient(ellipse 60% 50% at 50% 50%, rgba(255,255,255,0.02) 0%, transparent 70%)',
-          }} />
-          <ForceGraph2D
-            ref={fgRef}
-            width={580} height={480}
-            graphData={GRAPH_DATA}
-            nodeCanvasObject={renderDemoNode}
-            nodeCanvasObjectMode={() => 'replace'}
-            linkColor={() => 'rgba(255,255,255,0.06)'}
-            linkWidth={(link: any) => Math.max(0.5, (link.weight ?? 0.5) * 1.2)}
-            linkDirectionalParticles={1}
-            linkDirectionalParticleSpeed={0.002}
-            linkDirectionalParticleWidth={0.8}
-            linkDirectionalParticleColor={() => 'rgba(255,255,255,0.18)'}
-            backgroundColor="transparent"
-            enableNodeDrag={false}
-            enableZoomInteraction={false}
-            enablePanInteraction={false}
-            cooldownTicks={80}
-            warmupTicks={40}
-          />
+            display: 'inline-flex', alignItems: 'center', gap: '8px',
+            padding: '6px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '99px', width: 'fit-content', backdropFilter: 'blur(8px)', pointerEvents: 'auto',
+            transition: 'opacity 0.4s ease, transform 0.4s ease',
+            opacity: engineState === 'failure' ? 0.6 : 1,
+            transform: engineState === 'failure' ? 'translateY(-2px)' : 'translateY(0)',
+          }}>
+            <div style={{
+              width: '6px', height: '6px', borderRadius: '50%',
+              background: engineState === 'failure' ? '#FF3B3B' : 'var(--success)',
+              boxShadow: engineState === 'failure' ? '0 0 8px #FF3B3B' : '0 0 8px var(--success)',
+              transition: 'background 0.4s ease, box-shadow 0.4s ease'
+            }} />
+            <span className="label" style={{ color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>Tokaroo v2 Open Beta</span>
+          </div>
+
+          <h1 style={{
+             fontSize: '4.5rem', fontWeight: 800, lineHeight: 1.05, letterSpacing: '-0.04em', margin: 0,
+             transition: 'color 0.4s ease, transform 0.4s ease',
+             transform: engineState === 'failure' ? 'translateY(2px)' : 'translateY(0)'
+          }}>
+            {engineState === 'normal' || engineState === 'recovery' ? (
+              <>See how your AI actually thinks — <br />
+              <span style={{ color: 'rgba(255,255,255,0.4)', transition: 'color 0.4s ease' }}>before it fails</span></>
+            ) : (
+              <><span style={{ color: 'rgba(255,255,255,0.4)' }}>See how your AI actually thinks — </span><br />
+              <span style={{ color: '#FF3B3B', transition: 'color 0.4s ease' }}>Then watch it break</span></>
+            )}
+          </h1>
+
+          <p style={{ fontSize: '1.25rem', color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0, maxWidth: '440px' }}>
+            Visualize attention decay, chunking failures, and retrieval blind spots in real-time inside the LLM context window.
+          </p>
+
+          <div style={{ display: 'flex', gap: '16px', marginTop: '1rem', pointerEvents: 'auto' }}>
+            <button className="btn-primary" onClick={goToApp} style={{ width: 'auto', padding: '1rem 2.25rem', fontSize: '15px' }}>
+              Start Simulation
+            </button>
+            <button className="btn-ghost" onClick={goToApp} style={{ padding: '1rem 2.25rem', fontSize: '15px' }}>
+              View Pipeline  →
+            </button>
+          </div>
         </div>
       </section>
 
