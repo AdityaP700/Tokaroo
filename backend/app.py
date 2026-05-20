@@ -5,7 +5,7 @@ from model_config import SUPPORTED_MODELS
 from tokenizer_engine import get_tokens
 from context_simulator import calculate_attention_weights
 from analyzer import analyze_prompt_failure, generate_rag_diagnosis
-from typing import Dict
+from typing import Dict, Any
 from chunk_simulator import (
     simulate_rag_pipeline as run_rag_simulation,
     _load_default_sentence_embedding_model,
@@ -221,3 +221,67 @@ def simulate_rag(request: RagChunkRequest):
         optimization=insights,
         chunks=rag_data["chunks"]
     )
+
+# =========================================================================
+# ASYNC PIPELINE BENCHMARK (Testing Sync vs Async Fan-out/Fan-in Architecture)
+# =========================================================================
+
+import asyncio
+import time
+
+async def _mock_db_call(source: str, delay: float) -> list:
+    await asyncio.sleep(delay)
+    return [{"id": f"{source}_1", "score": 0.8, "source": source}]
+
+def _mock_rerank_batch(chunks: list) -> list:
+    time.sleep(0.15) # GPU overhead for batch
+    for c in chunks: 
+        c['score'] += 0.1
+    return chunks
+
+def _mock_rerank_sequential(chunk: dict) -> dict:
+    time.sleep(0.1) # Overhead per chunk
+    chunk['score'] += 0.1
+    return chunk
+
+@app.get("/benchmark-async")
+async def benchmark_async_pipeline():
+    """
+    Simulates a full scale Sync pipeline vs Async Pipeline overlapping I/O and batching.
+    Used to prove architectural value of asyncio.gather() and ThreadPools.
+    """
+    retrieval_configs = [("semantic", 0.2), ("lexical", 0.15), ("cache", 0.05)]
+    
+    # 1. SEQUENTIAL (Bad)
+    start_sync = time.perf_counter()
+    sync_chunks = []
+    # I/O sequentially
+    for src, delay in retrieval_configs:
+        sync_chunks.extend(await _mock_db_call(src, delay))
+    # CPU sequentially (inference)
+    sync_reranked = [_mock_rerank_sequential(c) for c in sync_chunks]
+    sync_latency = time.perf_counter() - start_sync
+    
+    # 2. ASYNC (Good)
+    start_async = time.perf_counter()
+    # I/O Parallel
+    tasks = [_mock_db_call(src, delay) for src, delay in retrieval_configs]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    async_chunks = []
+    for r in results:
+        if not isinstance(r, Exception): async_chunks.extend(r)
+        
+    # CPU Batched + Overlapped (Using to_thread to avoid blocking async loop)
+    async_rerank_task = asyncio.to_thread(_mock_rerank_batch, async_chunks)
+    async_reranked = await async_rerank_task
+    async_latency = time.perf_counter() - start_async
+    
+    return {
+        "sync_latency_ms": round(sync_latency * 1000, 2),
+        "async_latency_ms": round(async_latency * 1000, 2),
+        "speedup_factor": round(sync_latency / async_latency, 2),
+        "architecture": {
+            "sync": "Retrievals stacked sequentially, CPU inference chunk-by-chunk",
+            "async": "Retrievals parallelized in gather(), CPU inference batched externally"
+        }
+    }
