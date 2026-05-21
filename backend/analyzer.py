@@ -426,6 +426,13 @@ def generate_rag_diagnosis(
     else:
         reorder_effect = simulate_reorder_effect(rag_data)
 
+    # 🚨 FINAL OVERRIDE: Ensure short_summary matches the primary_issue resolved above
+    # Since checks run sequentially and can overwrite local variables, 
+    # we enforce exact explanation mapping for critical errors.
+    if primary_issue == "no_relevant_context":
+        short_summary = "No relevant context found: all retrieved chunks have low semantic alignment with the query."
+        impact = "high"
+
     return {
         "diagnosis": {
             "primary_issue": primary_issue,
