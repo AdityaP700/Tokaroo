@@ -2,7 +2,7 @@
 
 Tokaroo is an advanced, lightweight AI evaluation engineering toolkit designed to diagnose, explain, and automatically heal Retrieval-Augmented Generation (RAG) pipelines.
 
-Instead of just counting tokens, Tokaroo acts as an **X-Ray for your prompt context**, simulating how chunks are semantically embedded, cross-encoded, positioned, and ultimately processed by LLMs. It exposes complex cognitive failures like:
+Instead of just counting tokens, Tokaroo acts as an **X-Ray for your prompt context**, simulating how chunks are semantically embedded, cross-encoded, positioned, and ultimately processed by LLMs. It features a **Cinematic 3D Semantic Network UI** and an asynchronous benchmarking pipeline to visualize and test your retrieval strategies in real-time. It exposes complex cognitive failures like:
 - **Lost-in-the-Middle Attention Decay**: The model ignores valid data because of where it was placed.
 - **Semantic Mismatch & Hallucination Risks**: The vector DB loved the chunk (high semantic score), but it lacks actual lexical grounding (keywords), leading to false confidence.
 - **Noisy Context Usage**: Irrelevant chunks taking up valuable cognitive attention.
@@ -20,10 +20,12 @@ Instead of just counting tokens, Tokaroo acts as an **X-Ray for your prompt cont
 3. **Hybrid Information Retrieval**:
    - **Semantic Search:** Uses `SentenceTransformers` (`all-MiniLM-L6-v2`) for raw dense embedding generation and similarity scoring.
    - **Lexical Overlap:** Computes keyword density to ensure semantic matches aren't "hallucinated relevance".
-4. **Cross-Encoder Reranking**: Uses `ms-marco-MiniLM-L-6-v2` as an elite signal truth to re-evaluate semantic relevance against the query.
-5. **Attention Model & Usage Simulation**: Calculates deterministic positional weights to simulate U-shaped LLM attention curves.
-6. **Diagnostic Analyzer**: A strict, hierarchical decision tree identifies the primary structural flaw (e.g., Overflow > Redundancy > Lost in Middle > Noise).
-7. **Adaptive Optimizer Loop (2-Pass Mode)**: If `auto_optimize=True` and the `health_score` is poor, Tokaroo automatically applies its recommended config and re-runs the simulation to "heal" the RAG query.
+4. **Strict Pre-Prompt Filtering**: Dynamically filters chunks based on adaptive thresholds (e.g., `max(0.2, max_score * 0.6)`) to aggressively discard noise and "garbage-in" data before it hits the model.
+5. **Cross-Encoder Reranking**: Uses `ms-marco-MiniLM-L-6-v2` as an elite signal truth to re-evaluate semantic relevance against the query.
+6. **Attention Model & Usage Simulation**: Calculates deterministic positional weights to simulate U-shaped LLM attention curves.
+7. **Diagnostic Analyzer**: A strict, hierarchical decision tree identifies the primary structural flaw (e.g., Overflow > No Relevant Context > Redundancy).
+8. **Adaptive Optimizer Loop (2-Pass Mode)**: If `auto_optimize=True` and the `health_score` is poor, Tokaroo automatically applies its recommended config and re-runs the simulation to "heal" the RAG query.
+9. **Cinematic 3D UI Engine**: A React and Three.js-based rendering engine visualizes chunk relevance (nodes), relationships (edges), and failure states (red bursts + camera shake) in real-time.
 
 ## What Tokaroo Gives You
 A heavily structured JSON response detailing:
@@ -37,15 +39,16 @@ A heavily structured JSON response detailing:
 ## The Priority Diagnosis Tree
 When a RAG system fails, it often fails in multiple ways. Tokaroo enforces a strict causal diagnosis hierarchy:
 1. `context_window_overflow` (Input exceeds model limits)
-2. `high_token_redundancy` (Catastrophic overlap waste)
-3. `over_chunking` (Fragmentation via tiny chunks)
-4. `semantic_fragmentation` (Ideas spread too far apart)
-5. `lost_in_middle_decay` (Relevant chunks buried in the attention trough)
-6. `noisy_context_usage` (Irrelevant garbage heavily attended to)
-7. `semantic_mismatch` (High vector similarity, zero keyword presence)
-8. `false_positive_retrieval` (Model trusts a chunk that shouldn't be trusted)
-9. `weak_query_match` (Vector space is oblivious to the query)
-10. `low_diversity_retrieval` (Vector space is too narrow)
+2. `no_relevant_context` (Explicitly catching "garbage-in", where retrieved chunks have ~0 alignment with the query)
+3. `high_token_redundancy` (Catastrophic overlap waste)
+4. `over_chunking` (Fragmentation via tiny chunks)
+5. `semantic_fragmentation` (Ideas spread too far apart)
+6. `lost_in_middle_decay` (Relevant chunks buried in the attention trough)
+7. `noisy_context_usage` (Irrelevant garbage heavily attended to)
+8. `semantic_mismatch` (High vector similarity, zero keyword presence)
+9. `false_positive_retrieval` (Model trusts a chunk that shouldn't be trusted)
+10. `weak_query_match` (Vector space is oblivious to the query)
+11. `low_diversity_retrieval` (Vector space is too narrow)
 
 ## Supported LLM Profiles
 - **Claude 3.5 Sonnet (`claude-sonnet-4-6`)**: 1M Window
@@ -82,6 +85,19 @@ curl -X POST "http://127.0.0.1:8000/simulate-rag" \
          }'
 ```
 *Because `overlap` is pathologically high (24 on a 25 size), Tokaroo will detect `high_token_redundancy`, correct the overlap, recalculate the chunking, and output the optimized RAG layout.*
+
+Try the Asynchronous Benchmark Endpoint for load simulation:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/benchmark-async" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "queries": ["What is Tokaroo?", "Explain adaptive overlap", "Diagnostic tree details"],
+           "text": "Your long source text...",
+           "model": "gpt-4o",
+           "chunk_size": 25,
+           "overlap": 5
+         }'
 ```
 
 What to look for in the JSON
@@ -98,7 +114,7 @@ Testing
 
 Want help or improvements?
 -------------------------
-- I can add a tiny frontend that plots `attention_curve` and highlights ignored chunks.
+- **Frontend Integrated**: A complete React + Three.js visualizer is now included in `/frontend` to plot your `attention_curve` and highlight node relationships in real-time. Navigate to `/frontend`, run `npm i`, and `npm run dev` to launch the Cinematic Semantic Network Engine.
 - I can add more reordering heuristics or run a small experiment that summarizes middle chunks instead of reordering.
 
 Author
