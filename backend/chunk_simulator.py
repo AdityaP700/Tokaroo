@@ -249,12 +249,19 @@ def simulate_rag_pipeline(
     # CONTEXT FILTERING (PRE-PROMPT)
     # -------------------------------------------------------------
     # Step 1: Threshold filtering (remove noise before LLM sees it)
-    # The prompt explicitly asks to filter > 0.7, however for testing robustly we use a dynamic threshold
-    # based on the max score to prevent wiping out answers if model is weak, but threshold principle remains.
     max_score = max((c.get("rerank_score", c.get("similarity_score", 0)) for c in reranked_chunks), default=1.0)
-    dynamic_threshold = max(0.2, max_score * 0.6) # Adaptive thresholding
-    filtered_chunks = [c for c in reranked_chunks if c.get("rerank_score", c.get("similarity_score", 0)) > dynamic_threshold]
-    
+
+    # 🚨 FIX: "Garbage-in -> Garbage-kept" prevention
+    if max_score < 0.3:
+        # Fallback Strict Mode for weak-signal regimes
+        # If the best chunk is still weak, only keep the absolute top 1-2 chunks to limit token waste
+        # and prevent feeding the LLM 4 chunks of garbage.
+        filtered_chunks = reranked_chunks[:2]
+    else:
+        # Standard Adaptive Threshold
+        dynamic_threshold = max(0.2, max_score * 0.6)
+        filtered_chunks = [c for c in reranked_chunks if c.get("rerank_score", c.get("similarity_score", 0)) > dynamic_threshold]
+
     if not filtered_chunks and reranked_chunks:
          filtered_chunks = reranked_chunks # fallback if too aggressive
 

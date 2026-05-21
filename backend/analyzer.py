@@ -187,13 +187,14 @@ def generate_rag_diagnosis(
             "Implement semantic chunking instead of blind character/token counts."
         ])
 
-    # Check 6: Weak Retrieval Signal (Semantic Grounding)
+    # Check 6: No Relevant Context
+    # If all retrieved chunks lack semantic relevance, the system is fundamentally missing the answer.
     low_relevance_all = bool(chunks) and max_relevance < relevant_threshold and avg_relevance < 0.3
     if low_relevance_all:
-        issues.append({"type": "weak_query_match", "severity": "high"})
+        issues.append({"type": "no_relevant_context", "severity": "critical"})
         impact = "high"
-        confidence = 0.85
-        short_summary = "All retrieved chunks have low relevance to the overall query topic (weak semantic grounding)."
+        confidence = 0.95
+        short_summary = "All retrieved chunks have low semantic relevance to the query"
         actionable_steps.extend([
             "Review query generation or embedding strategy.",
             "Ensure vector DB contains domain-relevant data."
@@ -334,6 +335,7 @@ def generate_rag_diagnosis(
     # This is the ONLY place where primary_issue gets decided.
     priority_order = [
     "context_window_overflow",
+    "no_relevant_context",
     "high_token_redundancy",
     "over_chunking",
     "semantic_fragmentation",

@@ -182,7 +182,6 @@ def simulate_rag(request: RagChunkRequest):
     # ADAPTIVE OPTIMIZATION (2-PASS)
     # ---------------------------------------------------------
     if request.auto_optimize and insights["health_score"] < 85:
-        
         new_chunk_size = insights["recommended_config"].get("chunk_size", request.chunk_size)
         new_overlap = insights["recommended_config"].get("overlap", request.overlap)
         new_top_k = insights["recommended_config"].get("top_k", top_k)
@@ -235,7 +234,7 @@ async def _mock_db_call(source: str, delay: float) -> list:
 
 def _mock_rerank_batch(chunks: list) -> list:
     time.sleep(0.15) # GPU overhead for batch
-    for c in chunks: 
+    for c in chunks:
         c['score'] += 0.1
     return chunks
 
@@ -251,7 +250,7 @@ async def benchmark_async_pipeline():
     Used to prove architectural value of asyncio.gather() and ThreadPools.
     """
     retrieval_configs = [("semantic", 0.2), ("lexical", 0.15), ("cache", 0.05)]
-    
+
     # 1. SEQUENTIAL (Bad)
     start_sync = time.perf_counter()
     sync_chunks = []
@@ -261,7 +260,7 @@ async def benchmark_async_pipeline():
     # CPU sequentially (inference)
     sync_reranked = [_mock_rerank_sequential(c) for c in sync_chunks]
     sync_latency = time.perf_counter() - start_sync
-    
+
     # 2. ASYNC (Good)
     start_async = time.perf_counter()
     # I/O Parallel
@@ -270,12 +269,12 @@ async def benchmark_async_pipeline():
     async_chunks = []
     for r in results:
         if not isinstance(r, Exception): async_chunks.extend(r)
-        
+
     # CPU Batched + Overlapped (Using to_thread to avoid blocking async loop)
     async_rerank_task = asyncio.to_thread(_mock_rerank_batch, async_chunks)
     async_reranked = await async_rerank_task
     async_latency = time.perf_counter() - start_async
-    
+
     return {
         "sync_latency_ms": round(sync_latency * 1000, 2),
         "async_latency_ms": round(async_latency * 1000, 2),
