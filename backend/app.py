@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from schemas import SimulateRequest, SimulateResponse, CostEstimate,CompareRequest, CompareResponse,ModelComparisonResult,RagChunkRequest, RagChunkResponse
+from schemas import SimulateRequest, SimulateResponse, CostEstimate,CompareRequest, CompareResponse,ModelComparisonResult,RagChunkRequest, RagChunkResponse, BenchmarkRequest
 from model_config import SUPPORTED_MODELS
 from tokenizer_engine import get_tokens
 from context_simulator import calculate_attention_weights
@@ -243,13 +243,15 @@ def _mock_rerank_sequential(chunk: dict) -> dict:
     chunk['score'] += 0.1
     return chunk
 
-@app.get("/benchmark-async")
-async def benchmark_async_pipeline():
+@app.post("/benchmark-async")
+async def benchmark_async_pipeline(request: BenchmarkRequest):
     """
     Simulates a full scale Sync pipeline vs Async Pipeline overlapping I/O and batching.
     Used to prove architectural value of asyncio.gather() and ThreadPools.
     """
-    retrieval_configs = [("semantic", 0.2), ("lexical", 0.15), ("cache", 0.05)]
+    # Scale delay config by number of queries
+    num_queries = max(1, len(request.queries))
+    retrieval_configs = [("semantic", 0.2), ("lexical", 0.15), ("cache", 0.05)] * num_queries
 
     # 1. SEQUENTIAL (Bad)
     start_sync = time.perf_counter()

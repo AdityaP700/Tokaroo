@@ -58,6 +58,13 @@ class RagChunkRequest(BaseModel):
     retrieval_strategy: Optional[str] = Field(default="relevance_sorted", description="'sequential' or 'relevance_sorted'")
     auto_optimize: Optional[bool] = Field(default=True, description="Enable 2-pass adaptive optimization")
 
+class BenchmarkRequest(BaseModel):
+    queries: List[str]
+    text: str
+    model: str
+    chunk_size: int
+    overlap: int
+
 class ChunkDetail(BaseModel):
     chunk_index: int
     similarity_score: float      # Fake Vector DB relevance
