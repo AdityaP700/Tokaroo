@@ -64,6 +64,7 @@ class BenchmarkRequest(BaseModel):
     model: str
     chunk_size: int
     overlap: int
+    concurrency_level: Optional[int] = Field(default=10, ge=1, le=100)
 
 class ChunkDetail(BaseModel):
     chunk_index: int

@@ -233,56 +233,80 @@ async def _mock_db_call(source: str, delay: float) -> list:
     return [{"id": f"{source}_1", "score": 0.8, "source": source}]
 
 def _mock_rerank_batch(chunks: list) -> list:
-    time.sleep(0.15) # GPU overhead for batch
+    time.sleep(0.05) # GPU overhead for batch
     for c in chunks:
         c['score'] += 0.1
     return chunks
 
-def _mock_rerank_sequential(chunk: dict) -> dict:
-    time.sleep(0.1) # Overhead per chunk
-    chunk['score'] += 0.1
-    return chunk
+def _mock_diagnostic_batch(chunks: list) -> dict:
+    time.sleep(0.02) # CPU overhead for tree logic
+    return {"status": "optimal"}
+
+async def _process_single_query(retrieval_configs):
+    stages = {}
+    
+    # Retrieval Phase
+    t0 = time.perf_counter()
+    tasks = [_mock_db_call(src, delay) for src, delay in retrieval_configs]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    chunks = []
+    for r in results:
+        if not isinstance(r, Exception): chunks.extend(r)
+    t1 = time.perf_counter()
+    stages['retrieval_ms'] = round((t1 - t0) * 1000, 2)
+    
+    # Rerank Phase
+    await asyncio.to_thread(_mock_rerank_batch, chunks)
+    t2 = time.perf_counter()
+    stages['rerank_ms'] = round((t2 - t1) * 1000, 2)
+    
+    # Diagnostic Phase
+    await asyncio.to_thread(_mock_diagnostic_batch, chunks)
+    t3 = time.perf_counter()
+    stages['diagnostic_ms'] = round((t3 - t2) * 1000, 2)
+    
+    stages['total_ms'] = round((t3 - t0) * 1000, 2)
+    return stages
 
 @app.post("/benchmark-async")
 async def benchmark_async_pipeline(request: BenchmarkRequest):
     """
     Simulates a full scale Sync pipeline vs Async Pipeline overlapping I/O and batching.
-    Used to prove architectural value of asyncio.gather() and ThreadPools.
+    Includes stage-wise breakdowns, concurrency stress testing, and p95 tail latencies.
     """
-    # Scale delay config by number of queries
-    num_queries = max(1, len(request.queries))
-    retrieval_configs = [("semantic", 0.2), ("lexical", 0.15), ("cache", 0.05)] * num_queries
-
-    # 1. SEQUENTIAL (Bad)
-    start_sync = time.perf_counter()
-    sync_chunks = []
-    # I/O sequentially
-    for src, delay in retrieval_configs:
-        sync_chunks.extend(await _mock_db_call(src, delay))
-    # CPU sequentially (inference)
-    sync_reranked = [_mock_rerank_sequential(c) for c in sync_chunks]
-    sync_latency = time.perf_counter() - start_sync
-
-    # 2. ASYNC (Good)
-    start_async = time.perf_counter()
-    # I/O Parallel
-    tasks = [_mock_db_call(src, delay) for src, delay in retrieval_configs]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    async_chunks = []
-    for r in results:
-        if not isinstance(r, Exception): async_chunks.extend(r)
-
-    # CPU Batched + Overlapped (Using to_thread to avoid blocking async loop)
-    async_rerank_task = asyncio.to_thread(_mock_rerank_batch, async_chunks)
-    async_reranked = await async_rerank_task
-    async_latency = time.perf_counter() - start_async
+    retrieval_configs = [("semantic", 0.1), ("lexical", 0.08), ("cache", 0.02)]
+    
+    concurrency_level = request.concurrency_level or 10
+    
+    # Launch concurrent queries mapping to high system load
+    tasks = [_process_single_query(retrieval_configs) for _ in range(concurrency_level)]
+    
+    start_total = time.perf_counter()
+    results = await asyncio.gather(*tasks)
+    total_time_ms = (time.perf_counter() - start_total) * 1000
+    
+    totals = sorted([r['total_ms'] for r in results])
+    retrievals = sorted([r['retrieval_ms'] for r in results])
+    reranks = sorted([r['rerank_ms'] for r in results])
+    diagnostics = sorted([r['diagnostic_ms'] for r in results])
+    
+    def get_p(data, p):
+        idx = int((p / 100) * (len(data) - 1))
+        return data[idx]
 
     return {
-        "sync_latency_ms": round(sync_latency * 1000, 2),
-        "async_latency_ms": round(async_latency * 1000, 2),
-        "speedup_factor": round(sync_latency / async_latency, 2),
-        "architecture": {
-            "sync": "Retrievals stacked sequentially, CPU inference chunk-by-chunk",
-            "async": "Retrievals parallelized in gather(), CPU inference batched externally"
-        }
+        "concurrency_level": concurrency_level,
+        "throughput_req_per_sec": round(concurrency_level / (total_time_ms / 1000), 2),
+        "total_test_duration_ms": round(total_time_ms, 2),
+        "stage_breakdown_avg_ms": {
+            "retrieval": round(sum(retrievals)/len(retrievals), 2),
+            "rerank": round(sum(reranks)/len(reranks), 2),
+            "diagnostic": round(sum(diagnostics)/len(diagnostics), 2),
+        },
+        "tail_latency_ms": {
+            "p50": get_p(totals, 50),
+            "p95": get_p(totals, 95),
+            "p99": get_p(totals, 99)
+        },
+        "architecture_insights": "Async retrieval bounds tail latency; to_thread properly offloads CPU-bound batch inferencing avoiding event-loop starvation."
     }
