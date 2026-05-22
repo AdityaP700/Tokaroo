@@ -1,25 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SemanticNetworkEngine } from './SemanticNetworkEngine';
+import Spline from '@splinetool/react-spline';
+import { gsap } from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import Lenis from 'lenis';
 
-// ── Scroll fade-in hook ──────────────────────────────────────────────────
-function useScrollReveal(threshold = 0.15) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    if (!ref.current) return;
-    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) setVisible(true); }, { threshold });
-    obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, [threshold]);
-  return { ref, style: {
-    opacity: visible ? 1 : 0,
-    transform: visible ? 'translateY(0)' : 'translateY(20px)',
-    transition: 'opacity 0.7s ease, transform 0.7s ease',
-  } as React.CSSProperties };
-}
+gsap.registerPlugin(ScrollTrigger);
 
-// ── Data ─────────────────────────────────────────────────────────────────
+// Data ─────────────────────────────────────────────────────────────────
 const FAILURES = [
   { title: 'Lost in the Middle', desc: 'LLMs systematically ignore context placed in the center of the window. Chunks 3–7 are often invisible to the model.', metric: '40–60%', metricLabel: 'attention lost' },
   { title: 'Semantic Mismatch', desc: 'Retrieved chunks match lexically but diverge semantically. The model confidently produces wrong answers.', metric: '23%', metricLabel: 'avg. retrieval noise' },
@@ -35,139 +23,246 @@ const PIPELINE = [
 
 export const LandingPage: React.FC = () => {
   const navigate = useNavigate();
-  const fgRef = useRef<any>(null);
   const goToApp = () => navigate('/app/context');
 
-  const [engineState, setEngineState] = useState<'normal' | 'failure' | 'recovery'>('normal');
-
-  // Reveal hooks for each section
-  const failuresReveal = useScrollReveal();
-  const pipelineReveal = useScrollReveal();
-  const previewReveal  = useScrollReveal();
-  const ctaReveal      = useScrollReveal();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const heroRef = useRef<HTMLDivElement>(null);
+  const orbRef = useRef<HTMLDivElement>(null);
+  const particlesRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLDivElement>(null);
+  const systemSectionRef = useRef<HTMLDivElement>(null);
+  
+  const splineOrbRef = useRef<any>();
 
   useEffect(() => {
-    if (fgRef.current) fgRef.current.d3Force('charge')?.strength(-60);
+    // Smooth Scrolling with Lenis
+    const lenis = new Lenis({
+      duration: 1.2,
+      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+      orientation: 'vertical',
+      gestureOrientation: 'vertical',
+      smoothWheel: true,
+      wheelMultiplier: 1,
+    });
+
+    lenis.on('scroll', ScrollTrigger.update);
+    gsap.ticker.add((time) => {
+      lenis.raf(time * 1000);
+    });
+    gsap.ticker.lagSmoothing(0);
+
+    // Hero GSAP Scroll Timeline
+    if (heroRef.current && orbRef.current && particlesRef.current && textRef.current) {
+      const tl = gsap.timeline({
+        scrollTrigger: {
+          trigger: heroRef.current,
+          start: 'top top',
+          end: '+=150%',
+          scrub: 1,
+          pin: true,
+        }
+      });
+
+      // Phase 1 (0-30%) - Calm to slight scale
+      tl.to(textRef.current, { opacity: 0, y: -50, duration: 0.3 }, 0)
+        .to(orbRef.current, { scale: 1.5, duration: 0.6 }, 0)
+        .to(particlesRef.current, { scale: 1.2, opacity: 0.5, duration: 0.6 }, 0);
+
+      // Phase 2 (30-60%) - Destabilize
+      tl.to(orbRef.current, { 
+          scale: 3, 
+          opacity: 0, 
+          filter: 'blur(20px) contrast(150%)',
+          duration: 0.4 
+        }, 0.6)
+        .to(particlesRef.current, { 
+          scale: 2, 
+          opacity: 1,
+          duration: 0.4 
+        }, 0.6);
+    }
+
+    return () => {
+      lenis.destroy();
+      ScrollTrigger.getAll().forEach(t => t.kill());
+    };
   }, []);
 
   return (
-    <div style={{ height: '100vh', overflowY: 'auto', background: 'var(--bg)', color: 'var(--text-primary)' }}>
-
+    <div ref={containerRef} style={{ background: '#050505', color: '#F5F5F5', fontFamily: 'Inter, sans-serif' }}>
+      
       {/* ── NAV ────────────────────────────────────────────────────────── */}
       <nav style={{
-        position: 'sticky', top: 0, zIndex: 100,
+        position: 'fixed', top: 0, width: '100%', zIndex: 100,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 3.5rem', height: '54px',
-        background: 'rgba(10,10,10,0.92)', backdropFilter: 'blur(12px)',
-        borderBottom: '1px solid var(--border)',
+        padding: '0 3.5rem', height: '64px',
+        background: 'rgba(5, 5, 5, 0.4)', backdropFilter: 'blur(16px)',
+        borderBottom: '1px solid rgba(255,255,255,0.05)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: '#FAFAFA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--bg)' }} />
+          <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: '#F5F5F5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#050505' }} />
           </div>
-          <span style={{ fontWeight: 800, fontSize: '16px', letterSpacing: '-0.01em' }}>Tokaroo</span>
+          <span style={{ fontWeight: 600, fontSize: '15px', letterSpacing: '-0.01em', color: '#F5F5F5' }}>Tokaroo</span>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button className="btn-ghost" style={{ padding: '0.4rem 1rem', fontSize: '13px' }}>Docs</button>
-          <button className="btn-primary" onClick={goToApp} style={{ padding: '0.45rem 1.2rem', fontSize: '13px', width: 'auto' }}>Open App</button>
+          <button style={{ background: 'transparent', border: 'none', color: '#9CA3AF', padding: '0.5rem 1rem', fontSize: '13px', cursor: 'pointer', transition: 'color 0.2s' }} onMouseOver={e => e.currentTarget.style.color = '#F5F5F5'} onMouseOut={e => e.currentTarget.style.color = '#9CA3AF'}>Docs</button>
+          <button onClick={goToApp} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#F5F5F5', padding: '0.45rem 1.2rem', fontSize: '13px', borderRadius: '6px', cursor: 'pointer', transition: 'background 0.2s' }} onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'} onMouseOut={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}>Open App</button>
         </div>
       </nav>
 
-      {/* ── HERO ───────────────────────────────────────────────────────── */}
-      <section style={{
+      {/* ── CINEMATIC HERO ─────────────────────────────────────────────── */}
+      <section ref={heroRef} style={{
         position: 'relative',
-        minHeight: '100vh',
+        height: '100vh',
+        width: '100%',
         display: 'flex',
         alignItems: 'center',
-        padding: '0 5rem',
+        justifyContent: 'center',
         overflow: 'hidden',
         background: '#050505',
       }}>
-        {/* Cinematic gradient overlay */}
+        {/* Layer 1: Subtle Vignette / Gradient Light */}
         <div style={{
           position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none',
-          background: 'linear-gradient(90deg, rgba(0,0,0,0.96) 0%, rgba(0,0,0,0.74) 36%, rgba(0,0,0,0.18) 62%, rgba(0,0,0,0.08) 100%)'
+          background: 'radial-gradient(circle at center, rgba(255,59,59,0.03) 0%, rgba(5,5,5,1) 70%)',
+        }} />
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none',
+          boxShadow: 'inset 0 0 150px rgba(0,0,0,0.9)',
         }} />
 
-        {/* 3D Canvas Full Bleed on Right */}
-        <div style={{
-          position: 'absolute', right: 0, top: 0, bottom: 0, width: '72%', zIndex: 0
+        {/* Layer 2: Particle Field */}
+        <div ref={particlesRef} style={{
+          position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none',
+          opacity: 0.3,
+          transformOrigin: 'center center',
         }}>
-          <SemanticNetworkEngine onStateChange={setEngineState} />
+          <Spline scene="https://prod.spline.design/LHmTpPo9cVW2yCtl/scene.splinecode" />
         </div>
 
-        {/* Content (Left) */}
-        <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', gap: '2rem', maxWidth: '600px', pointerEvents: 'none' }}>
+        {/* Layer 3: Main Cognitive Orb */}
+        <div ref={orbRef} style={{
+          position: 'absolute',
+          width: '100%', height: '100%',
+          zIndex: 3,
+          pointerEvents: 'auto',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transformOrigin: 'center center',
+          mixBlendMode: 'screen',
+        }}>
+           <div style={{ width: '800px', height: '800px', position: 'absolute' }}>
+             <Spline scene="https://prod.spline.design/UP63e84psthVrHsD/scene.splinecode" onLoad={(splineApp) => { splineOrbRef.current = splineApp; }} />
+           </div>
+        </div>
+
+        {/* Layer 4: Floating Token Fragments */}
+        <div style={{ position: 'absolute', inset: 0, zIndex: 4, pointerEvents: 'none' }}>
+           <div style={{ position: 'absolute', top: '30%', left: '20%', width: '4px', height: '4px', background: 'rgba(255,255,255,0.2)' }} />
+           <div style={{ position: 'absolute', top: '60%', left: '75%', width: '3px', height: '3px', background: 'rgba(255,59,59,0.3)' }} />
+           <div style={{ position: 'absolute', top: '70%', left: '30%', width: '5px', height: '5px', background: 'rgba(79,140,255,0.2)' }} />
+        </div>
+
+        {/* Layer 5: UI Overlay */}
+        <div ref={textRef} style={{
+          position: 'relative', zIndex: 5,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+          gap: '1.5rem', maxWidth: '800px', pointerEvents: 'none',
+          marginTop: '-4vh'
+        }}>
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: '8px',
-            padding: '6px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: '99px', width: 'fit-content', backdropFilter: 'blur(8px)', pointerEvents: 'auto',
-            transition: 'opacity 0.4s ease, transform 0.4s ease',
-            opacity: engineState === 'failure' ? 0.6 : 1,
-            transform: engineState === 'failure' ? 'translateY(-2px)' : 'translateY(0)',
+            padding: '6px 14px', background: 'rgba(11,11,11,0.6)', border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '99px', backdropFilter: 'blur(12px)',
           }}>
             <div style={{
               width: '6px', height: '6px', borderRadius: '50%',
-              background: engineState === 'failure' ? '#FF3B3B' : 'var(--success)',
-              boxShadow: engineState === 'failure' ? '0 0 8px #FF3B3B' : '0 0 8px var(--success)',
-              transition: 'background 0.4s ease, box-shadow 0.4s ease'
+              background: '#FF3B3B',
+              boxShadow: '0 0 10px rgba(255,59,59,0.6)',
             }} />
-            <span className="label" style={{ color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>Tokaroo v2 Open Beta</span>
+            <span style={{ color: '#9CA3AF', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Tokaroo Core Active</span>
           </div>
 
           <h1 style={{
-             fontSize: '4.5rem', fontWeight: 800, lineHeight: 1.05, letterSpacing: '-0.04em', margin: 0,
-             transition: 'color 0.4s ease, transform 0.4s ease',
-             transform: engineState === 'failure' ? 'translateY(2px)' : 'translateY(0)'
+             fontSize: '5rem', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.04em', margin: 0,
+             color: '#F5F5F5',
+             textShadow: '0 4px 24px rgba(0,0,0,0.5)',
           }}>
-            {engineState === 'normal' || engineState === 'recovery' ? (
-              <>See how your AI actually thinks — <br />
-              <span style={{ color: 'rgba(255,255,255,0.4)', transition: 'color 0.4s ease' }}>before it fails</span></>
-            ) : (
-              <><span style={{ color: 'rgba(255,255,255,0.4)' }}>See how your AI actually thinks — </span><br />
-              <span style={{ color: '#FF3B3B', transition: 'color 0.4s ease' }}>Then watch it break</span></>
-            )}
+            See how your AI thinks — <br />
+            <span style={{ color: '#9CA3AF' }}>Then watch it break</span>
           </h1>
 
-          <p style={{ fontSize: '1.25rem', color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0, maxWidth: '440px' }}>
-            Visualize attention decay, chunking failures, and retrieval blind spots in real-time inside the LLM context window.
+          <p style={{ fontSize: '1.25rem', color: '#9CA3AF', lineHeight: 1.6, margin: 0, maxWidth: '520px', fontWeight: 400 }}>
+            Visualize token flow, attention decay, and failure patterns in real time.
           </p>
 
           <div style={{ display: 'flex', gap: '16px', marginTop: '1rem', pointerEvents: 'auto' }}>
-            <button className="btn-primary" onClick={goToApp} style={{ width: 'auto', padding: '1rem 2.25rem', fontSize: '15px' }}>
+            <button onClick={goToApp} style={{ 
+              background: '#F5F5F5', color: '#050505', 
+              border: 'none', borderRadius: '8px', 
+              padding: '1rem 2rem', fontSize: '14px', fontWeight: 500, 
+              cursor: 'pointer', transition: 'all 0.3s',
+              boxShadow: '0 4px 20px rgba(255,255,255,0.1)'
+            }}
+            onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 30px rgba(255,255,255,0.15)'; }}
+            onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(255,255,255,0.1)'; }}
+            >
               Start Simulation
             </button>
-            <button className="btn-ghost" onClick={goToApp} style={{ padding: '1rem 2.25rem', fontSize: '15px' }}>
-              View Pipeline  →
+            <button onClick={goToApp} style={{ 
+              background: 'rgba(255,255,255,0.03)', color: '#F5F5F5', 
+              border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', 
+              padding: '1rem 2rem', fontSize: '14px', fontWeight: 500, 
+              cursor: 'pointer', transition: 'all 0.3s', backdropFilter: 'blur(8px)'
+            }}
+            onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+            onMouseOut={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
+            >
+              View Pipeline
             </button>
           </div>
         </div>
+
+        {/* Scroll Hint */}
+        <div style={{
+          position: 'absolute', bottom: '40px', left: '50%', transform: 'translateX(-50%)',
+          color: '#9CA3AF', fontSize: '12px', fontWeight: 500, letterSpacing: '0.05em',
+          opacity: 0.6, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px'
+        }}>
+          Scroll to explore system
+          <div style={{ width: '1px', height: '24px', background: 'linear-gradient(to bottom, rgba(156,163,175,0.5), transparent)' }} />
+        </div>
       </section>
 
-      {/* ── SECTION 1 — Where AI fails silently ──────────────────────── */}
-      <section ref={failuresReveal.ref} style={{ ...failuresReveal.style, padding: '6rem 5rem', borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
+      {/* ── SECTION 1 — Feature System (Transitioned from Hero) ──────── */}
+      <section ref={systemSectionRef} style={{ 
+        position: 'relative', padding: '8rem 5rem', background: '#0B0B0B',
+        borderTop: '1px solid rgba(255,255,255,0.05)', zIndex: 10 
+      }}>
         <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
-          <div style={{ marginBottom: '3.5rem' }}>
-            <div className="label" style={{ marginBottom: '8px' }}>Where AI fails silently</div>
-            <h2 style={{ fontSize: '2.25rem', fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>
+          <div style={{ marginBottom: '4rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', color: '#4F8CFF', textTransform: 'uppercase', marginBottom: '12px' }}>System Architecture</div>
+            <h2 style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.02em', margin: 0, color: '#F5F5F5' }}>
               The invisible failures
             </h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '1rem', marginTop: '0.75rem', maxWidth: '560px' }}>
-              These problems exist in every RAG system. Most teams never see them.
+            <p style={{ color: '#9CA3AF', fontSize: '1.1rem', marginTop: '1rem', maxWidth: '600px', margin: '1rem auto 0' }}>
+              These problems exist in every RAG system. Most teams never see them until it's too late.
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: 'var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
-            {FAILURES.map((f) => (
-              <div key={f.title} style={{ padding: '2rem', background: 'var(--surface)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: 'rgba(255,255,255,0.05)', borderRadius: '16px', overflow: 'hidden' }}>
+            {FAILURES.map((f, i) => (
+              <div key={f.title} style={{ padding: '3rem 2rem', background: '#0B0B0B', display: 'flex', flexDirection: 'column', gap: '1.5rem', transition: 'background 0.3s' }}
+                   onMouseOver={e => e.currentTarget.style.background = '#111111'}
+                   onMouseOut={e => e.currentTarget.style.background = '#0B0B0B'}>
                 <div>
-                  <div className="value-mono" style={{ fontSize: '24px', fontWeight: 700, letterSpacing: '-0.02em' }}>{f.metric}</div>
-                  <div className="label" style={{ marginTop: '2px' }}>{f.metricLabel}</div>
+                  <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '28px', fontWeight: 700, color: i === 0 ? '#FF3B3B' : '#F5F5F5', letterSpacing: '-0.02em' }}>{f.metric}</div>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: '4px' }}>{f.metricLabel}</div>
                 </div>
-                <div style={{ height: '1px', background: 'var(--border)' }} />
+                <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)' }} />
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: '16px', marginBottom: '8px' }}>{f.title}</div>
-                  <div style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.65 }}>{f.desc}</div>
+                  <div style={{ fontWeight: 600, fontSize: '18px', marginBottom: '10px', color: '#F5F5F5' }}>{f.title}</div>
+                  <div style={{ fontSize: '14px', color: '#9CA3AF', lineHeight: 1.6 }}>{f.desc}</div>
                 </div>
               </div>
             ))}
@@ -176,125 +271,75 @@ export const LandingPage: React.FC = () => {
       </section>
 
       {/* ── SECTION 2 — Tokaroo reveals it (pipeline) ────────────────── */}
-      <section ref={pipelineReveal.ref} style={{ ...pipelineReveal.style, padding: '6rem 5rem', maxWidth: '1280px', margin: '0 auto' }}>
-        <div style={{ marginBottom: '3.5rem' }}>
-          <div className="label" style={{ marginBottom: '8px' }}>Tokaroo reveals it</div>
-          <h2 style={{ fontSize: '2.25rem', fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>
+      <section style={{ padding: '8rem 5rem', maxWidth: '1280px', margin: '0 auto', background: '#050505' }}>
+        <div style={{ marginBottom: '4rem' }}>
+          <div style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', color: '#FF3B3B', textTransform: 'uppercase', marginBottom: '12px' }}>Tokaroo reveals it</div>
+          <h2 style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.02em', margin: 0, color: '#F5F5F5' }}>
             Visualize → Diagnose → Optimize
           </h2>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1px', background: 'var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1px', background: 'rgba(255,255,255,0.05)', borderRadius: '16px', overflow: 'hidden' }}>
           {PIPELINE.map((step) => (
-            <div key={step.num} style={{ padding: '2rem 1.75rem', background: 'var(--surface)' }}>
-              <div className="value-mono" style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '14px' }}>{step.num}</div>
-              <div style={{ fontWeight: 700, fontSize: '16px', marginBottom: '8px' }}>{step.label}</div>
-              <div style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.65 }}>{step.desc}</div>
+            <div key={step.num} style={{ padding: '2.5rem 2rem', background: '#0B0B0B' }}>
+              <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', color: '#4F8CFF', marginBottom: '16px' }}>{step.num}</div>
+              <div style={{ fontWeight: 600, fontSize: '18px', marginBottom: '10px', color: '#F5F5F5' }}>{step.label}</div>
+              <div style={{ fontSize: '14px', color: '#9CA3AF', lineHeight: 1.6 }}>{step.desc}</div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* ── SECTION 3 — Demo preview ─────────────────────────────────── */}
-      <section ref={previewReveal.ref} style={{ ...previewReveal.style, padding: '6rem 5rem', borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
-        <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-            <div className="label" style={{ marginBottom: '8px' }}>Product Preview</div>
-            <h2 style={{ fontSize: '2.25rem', fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>
-              Three views. One system.
-            </h2>
-            <p style={{ color: 'var(--text-secondary)', marginTop: '0.75rem', fontSize: '1rem' }}>
-              Graph, Context Strip, and Attention — all synchronized.
-            </p>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: 'var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
-            {/* Graph preview */}
-            <div style={{ padding: '1.5rem', background: 'var(--bg)' }}>
-              <div className="label" style={{ marginBottom: '12px' }}>Graph</div>
-              <div style={{ height: '120px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                {/* Mini node cluster */}
-                {[
-                  { x: 40, y: 30, r: 10 }, { x: 90, y: 55, r: 14 }, { x: 140, y: 25, r: 8 },
-                  { x: 70, y: 80, r: 12 }, { x: 120, y: 70, r: 6 }, { x: 160, y: 60, r: 9 },
-                ].map((n, i) => (
-                  <div key={i} style={{
-                    position: 'absolute', left: n.x, top: n.y,
-                    width: n.r * 2, height: n.r * 2, borderRadius: '50%',
-                    background: i === 1 ? '#FAFAFA' : '#2A2A2A',
-                    boxShadow: i === 1 ? '0 0 8px rgba(255,255,255,0.1)' : 'none',
-                  }} />
-                ))}
-              </div>
-              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '12px', lineHeight: 1.5 }}>
-                Chunks as nodes. Edges as semantic flow. Center = highest relevance.
-              </div>
-            </div>
-
-            {/* Token strip preview */}
-            <div style={{ padding: '1.5rem', background: 'var(--bg)' }}>
-              <div className="label" style={{ marginBottom: '12px' }}>Context Strip</div>
-              <div style={{ display: 'flex', gap: '2px', height: '32px', borderRadius: '4px', overflow: 'hidden', marginTop: '44px' }}>
-                {[0.8, 0.6, 0.3, 0.2, 0.15, 0.5, 0.7, 0.4].map((a, i) => (
-                  <div key={i} style={{
-                    flex: 1,
-                    background: `rgba(250,250,250,${(a * 0.7).toFixed(2)})`,
-                    borderBottom: i === 3 ? '2px solid var(--danger)' : 'none',
-                  }} />
-                ))}
-              </div>
-              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '12px', lineHeight: 1.5 }}>
-                Width = tokens. Brightness = attention. Red border = risk.
-              </div>
-            </div>
-
-            {/* Sparkline preview */}
-            <div style={{ padding: '1.5rem', background: 'var(--bg)' }}>
-              <div className="label" style={{ marginBottom: '12px' }}>Attention</div>
-              <svg width="100%" height="60" viewBox="0 0 200 60" style={{ marginTop: '44px' }}>
-                <polyline
-                  points="0,20 25,15 50,30 75,45 100,50 125,35 150,18 175,12 200,22"
-                  fill="none" stroke="rgba(250,250,250,0.5)" strokeWidth="1.5"
-                />
-              </svg>
-              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '12px', lineHeight: 1.5 }}>
-                Real-time attention curve synced to nodes and tokens.
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* ── BOTTOM CTA ────────────────────────────────────────────────── */}
-      <section ref={ctaReveal.ref} style={{
-        ...ctaReveal.style,
-        padding: '6rem 5rem', borderTop: '1px solid var(--border)',
-        display: 'flex', flexDirection: 'column', alignItems: 'center',
-        textAlign: 'center', gap: '1.5rem',
+      <section style={{
+        padding: '8rem 5rem', background: '#0B0B0B', borderTop: '1px solid rgba(255,255,255,0.05)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '2rem',
       }}>
-        <h2 style={{ fontSize: '2.5rem', fontWeight: 800, letterSpacing: '-0.03em', margin: 0, maxWidth: '520px' }}>
+        <div style={{
+          width: '64px', height: '64px', borderRadius: '16px', background: 'rgba(255,255,255,0.03)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.08)'
+        }}>
+          <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: '#F5F5F5', boxShadow: '0 0 20px rgba(255,255,255,0.3)' }} />
+        </div>
+        <h2 style={{ fontSize: '3rem', fontWeight: 700, letterSpacing: '-0.03em', margin: 0, maxWidth: '600px', color: '#F5F5F5' }}>
           Start understanding your RAG pipeline
         </h2>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '1.05rem', margin: 0 }}>
+        <p style={{ color: '#9CA3AF', fontSize: '1.15rem', margin: 0, maxWidth: '500px' }}>
           Connected to the Tokaroo backend. Real diagnostics, real chunk analysis, no mock graph.
         </p>
-        <button className="btn-primary" onClick={goToApp} style={{ width: 'auto', padding: '0.85rem 2.25rem', fontSize: '15px' }}>
-          Open Simulator  →
+        <button onClick={goToApp} style={{ 
+          marginTop: '1rem', background: '#F5F5F5', color: '#050505', 
+          border: 'none', borderRadius: '8px', 
+          padding: '1rem 2.5rem', fontSize: '15px', fontWeight: 600, 
+          cursor: 'pointer', transition: 'transform 0.3s, box-shadow 0.3s',
+          boxShadow: '0 4px 20px rgba(255,255,255,0.1)'
+        }}
+        onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 30px rgba(255,255,255,0.15)'; }}
+        onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(255,255,255,0.1)'; }}
+        >
+          Open Simulator
         </button>
       </section>
 
       {/* ── FOOTER ────────────────────────────────────────────────────── */}
       <footer style={{
-        borderTop: '1px solid var(--border)', padding: '1.5rem 5rem',
+        borderTop: '1px solid rgba(255,255,255,0.05)', padding: '2rem 5rem', background: '#050505',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ width: '18px', height: '18px', borderRadius: '4px', background: '#FAFAFA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--bg)' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: '#F5F5F5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#050505' }} />
           </div>
-          <span style={{ fontSize: '14px', fontWeight: 700 }}>Tokaroo</span>
+          <span style={{ fontSize: '14px', fontWeight: 600, color: '#F5F5F5' }}>Tokaroo</span>
         </div>
-        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>AI Cognitive Visualization System</div>
+        <div style={{ fontSize: '13px', color: '#9CA3AF' }}>AI Cognitive Visualization System</div>
       </footer>
+
+      {/* Grain Overlay */}
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 9999, pointerEvents: 'none', opacity: 0.04,
+        backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noiseFilter\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.65\' numOctaves=\'3\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noiseFilter)\'/%3E%3C/svg%3E")',
+      }} />
     </div>
   );
 };
+

@@ -65,6 +65,8 @@ class BenchmarkRequest(BaseModel):
     chunk_size: int
     overlap: int
     concurrency_level: Optional[int] = Field(default=10, ge=1, le=100)
+    batch_size: Optional[int] = Field(default=8, ge=1, description="Simulate GPU batching size for throughput/latency tradeoff")
+    simulate_faults: Optional[bool] = Field(default=False, description="Simulate partial DB failures and reranker timeouts")
 
 class ChunkDetail(BaseModel):
     chunk_index: int

@@ -228,42 +228,80 @@ def simulate_rag(request: RagChunkRequest):
 import asyncio
 import time
 
-async def _mock_db_call(source: str, delay: float) -> list:
+async def _mock_db_call(source: str, delay: float, simulate_faults: bool) -> list:
+    # Case 1: Partial Failure (Semantic backend timeout)
+    if simulate_faults and source == "semantic":
+        await asyncio.sleep(1.0)
+        raise TimeoutError("Semantic DB unreachable")
+    
     await asyncio.sleep(delay)
     return [{"id": f"{source}_1", "score": 0.8, "source": source}]
 
-def _mock_rerank_batch(chunks: list) -> list:
-    time.sleep(0.05) # GPU overhead for batch
+def _mock_rerank_batch(chunks: list, batch_size: int) -> list:
+    # Throughput vs Latency relationship:
+    # More chunks fit in a batch = fewer loops = faster throughput, 
+    # but actual GPU inference per batch scales.
+    num_batches = max(1, len(chunks) // batch_size + (1 if len(chunks) % batch_size else 0))
+    time.sleep(0.02 * num_batches) # GPU overhead scaled by batch efficiency
     for c in chunks:
         c['score'] += 0.1
     return chunks
 
 def _mock_diagnostic_batch(chunks: list) -> dict:
-    time.sleep(0.02) # CPU overhead for tree logic
-    return {"status": "optimal"}
+    # Diagnostic profiling breakdown
+    t0 = time.perf_counter()
+    time.sleep(0.01) # semantic eval
+    t1 = time.perf_counter()
+    time.sleep(0.005) # attention calc
+    t2 = time.perf_counter()
+    time.sleep(0.005) # risk calc
+    t3 = time.perf_counter()
+    return {
+        "semantic_ms": round((t1 - t0)*1000, 2),
+        "attention_ms": round((t2 - t1)*1000, 2),
+        "risk_eval_ms": round((t3 - t2)*1000, 2)
+    }
 
-async def _process_single_query(retrieval_configs):
+async def _process_single_query(retrieval_configs, batch_size: int, simulate_faults: bool):
     stages = {}
     
-    # Retrieval Phase
+    # 1. Retrieval Phase (with safe_call / gather exceptions)
     t0 = time.perf_counter()
-    tasks = [_mock_db_call(src, delay) for src, delay in retrieval_configs]
+    tasks = [_mock_db_call(src, delay, simulate_faults) for src, delay in retrieval_configs]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     chunks = []
+    failed_sources = 0
     for r in results:
-        if not isinstance(r, Exception): chunks.extend(r)
+        if isinstance(r, Exception):
+            failed_sources += 1
+        else:
+            chunks.extend(r)
+    
+    # Case 4: Empty Retrieval
+    if not chunks:
+        stages['error'] = "no_context"
+    
     t1 = time.perf_counter()
     stages['retrieval_ms'] = round((t1 - t0) * 1000, 2)
+    stages['failed_sources'] = failed_sources
     
-    # Rerank Phase
-    await asyncio.to_thread(_mock_rerank_batch, chunks)
+    # 2. Rerank Phase (with Timeout fallbacks)
+    try:
+        rerank_task = asyncio.to_thread(_mock_rerank_batch, chunks, batch_size)
+        timeout_limit = 0.01 if simulate_faults else 2.0
+        await asyncio.wait_for(rerank_task, timeout=timeout_limit)
+        stages['rerank_status'] = "success"
+    except asyncio.TimeoutError:
+        stages['rerank_status'] = "degraded_fallback_used"
+        
     t2 = time.perf_counter()
     stages['rerank_ms'] = round((t2 - t1) * 1000, 2)
     
-    # Diagnostic Phase
-    await asyncio.to_thread(_mock_diagnostic_batch, chunks)
+    # 3. Diagnostic Phase Sub-timing
+    diag_res = await asyncio.to_thread(_mock_diagnostic_batch, chunks)
     t3 = time.perf_counter()
     stages['diagnostic_ms'] = round((t3 - t2) * 1000, 2)
+    stages['diagnostic_breakdown'] = diag_res
     
     stages['total_ms'] = round((t3 - t0) * 1000, 2)
     return stages
@@ -272,14 +310,16 @@ async def _process_single_query(retrieval_configs):
 async def benchmark_async_pipeline(request: BenchmarkRequest):
     """
     Simulates a full scale Sync pipeline vs Async Pipeline overlapping I/O and batching.
-    Includes stage-wise breakdowns, concurrency stress testing, and p95 tail latencies.
+    Includes stage-wise breakdowns, concurrency stress testing, failure recovery, and p95 tail latencies.
     """
     retrieval_configs = [("semantic", 0.1), ("lexical", 0.08), ("cache", 0.02)]
     
     concurrency_level = request.concurrency_level or 10
+    batch_size = request.batch_size or 8
+    simulate_faults = request.simulate_faults or False
     
     # Launch concurrent queries mapping to high system load
-    tasks = [_process_single_query(retrieval_configs) for _ in range(concurrency_level)]
+    tasks = [_process_single_query(retrieval_configs, batch_size, simulate_faults) for _ in range(concurrency_level)]
     
     start_total = time.perf_counter()
     results = await asyncio.gather(*tasks)
@@ -294,19 +334,27 @@ async def benchmark_async_pipeline(request: BenchmarkRequest):
         idx = int((p / 100) * (len(data) - 1))
         return data[idx]
 
+    # Grab the detailed breakdown from the first result as a sample
+    sample_diagnostic = results[0].get('diagnostic_breakdown', {})
+    
     return {
         "concurrency_level": concurrency_level,
+        "batch_size": batch_size,
         "throughput_req_per_sec": round(concurrency_level / (total_time_ms / 1000), 2),
         "total_test_duration_ms": round(total_time_ms, 2),
+        "fault_injection_active": simulate_faults,
+        "total_failed_retrieval_sources": sum(r.get('failed_sources', 0) for r in results),
+        "timeout_fallbacks_used": sum(1 for r in results if r.get('rerank_status') == "degraded_fallback_used"),
         "stage_breakdown_avg_ms": {
             "retrieval": round(sum(retrievals)/len(retrievals), 2),
             "rerank": round(sum(reranks)/len(reranks), 2),
-            "diagnostic": round(sum(diagnostics)/len(diagnostics), 2),
+            "diagnostic_total": round(sum(diagnostics)/len(diagnostics), 2),
+            "diagnostic_sub_stages_sample": sample_diagnostic
         },
         "tail_latency_ms": {
             "p50": get_p(totals, 50),
             "p95": get_p(totals, 95),
             "p99": get_p(totals, 99)
         },
-        "architecture_insights": "Async retrieval bounds tail latency; to_thread properly offloads CPU-bound batch inferencing avoiding event-loop starvation."
+        "architecture_insights": "Async retrieval isolates failures preventing total crash; Batching trades per-req latency for raw throughput."
     }
