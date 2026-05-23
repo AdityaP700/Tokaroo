@@ -1,6 +1,6 @@
 # Tokaroo — The Adaptive RAG Evaluator & Optimizer
 
-Tokaroo is an advanced, lightweight AI evaluation engineering toolkit designed to diagnose, explain, and automatically heal Retrieval-Augmented Generation (RAG) pipelines.
+Tokaroo(Token+Kangaroo) is an advanced, lightweight AI evaluation engineering toolkit designed to diagnose, explain, and automatically heal Retrieval-Augmented Generation (RAG) pipelines.
 
 Instead of just counting tokens, Tokaroo acts as an **X-Ray for your prompt context**, simulating how chunks are semantically embedded, cross-encoded, positioned, and ultimately processed by LLMs. It features a **Cinematic 3D Semantic Network UI** and an asynchronous benchmarking pipeline to visualize and test your retrieval strategies in real-time. It exposes complex cognitive failures like:
 - **Lost-in-the-Middle Attention Decay**: The model ignores valid data because of where it was placed.
