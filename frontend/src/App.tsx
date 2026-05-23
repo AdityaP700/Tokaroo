@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LandingPage } from './components/LandingPage';
+import {SplineTest} from './components/SplineTest';
 import { MainWorkspace } from './components/Layout/MainWorkspace';
 import './index.css';
 
