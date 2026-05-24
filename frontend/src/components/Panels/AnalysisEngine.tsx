@@ -172,8 +172,9 @@ function FailureNarrative({
             marginTop: "6px",
             padding: "8px 10px",
             borderRadius: "4px",
-            background: "rgba(220,38,38,0.06)",
-            border: "1px solid rgba(220,38,38,0.2)",
+            background: "rgba(239,68,68,0.10)",
+            border: "1px solid rgba(239,68,68,0.30)",
+            boxShadow: "0 0 24px rgba(239,68,68,0.06)",
             fontSize: "12px",
             color: "var(--danger)",
             fontWeight: 600,
@@ -196,6 +197,8 @@ export const AnalysisEngine: React.FC = () => {
   const hasResult = simulation.runId > 0 && !simulation.loading;
   const overlay = analysis.diagnosis ? GRAPH_OVERLAY[analysis.diagnosis] : null;
 
+  const issueColor = overlay?.color ?? "#f59e0b";
+
   return (
     <div
       className="panel"
@@ -206,6 +209,10 @@ export const AnalysisEngine: React.FC = () => {
         gap: "0.9rem",
         padding: "1.25rem",
         overflowY: "auto",
+        borderLeft: hasResult
+          ? `2px solid ${issueColor}`
+          : "1px solid var(--border)",
+        boxShadow: hasResult ? `inset 18px 0 28px -28px ${issueColor}` : "none",
       }}
     >
       {/* Header */}
@@ -266,7 +273,7 @@ export const AnalysisEngine: React.FC = () => {
             padding: "2rem 1rem",
           }}
         >
-          <div style={{ fontSize: "22px", opacity: 0.35 }}>📊</div>
+          <div style={{ fontSize: "22px", opacity: 0.35 }}></div>
           <div style={{ lineHeight: 1.55 }}>
             Run a simulation to see
             <br />
@@ -386,13 +393,14 @@ export const AnalysisEngine: React.FC = () => {
                     width: "100%",
                     padding: "8px 12px",
                     borderRadius: "var(--radius-sm)",
-                    background: "rgba(22,163,74,0.12)",
-                    border: "1px solid rgba(22,163,74,0.3)",
-                    color: "var(--success)",
+                    background: "linear-gradient(to right, #22c55e, #16a34a)",
+                    border: "1px solid rgba(34,197,94,0.55)",
+                    color: "#03140a",
+                    boxShadow: "0 0 20px rgba(34,197,94,0.2)",
                     fontSize: "13px",
                     fontWeight: 600,
                     cursor: "pointer",
-                    transition: "all 0.15s",
+                    transition: "transform 0.15s ease, box-shadow 0.15s ease",
                     fontFamily: "var(--font-sans)",
                   }}
                 >
