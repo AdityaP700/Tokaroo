@@ -1,7 +1,14 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
+const rawBase = import.meta.env.VITE_API_BASE_URL ?? '/api';
+const API_BASE_URL = rawBase.endsWith('/') && rawBase.length > 1 ? rawBase.slice(0, -1) : rawBase;
+
+function joinEndpoint(base: string, endpoint: string) {
+  const e = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return `${base}${e}`;
+}
 
 export async function apiRequest<T>(endpoint: string, data: any): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const url = joinEndpoint(API_BASE_URL, endpoint);
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
