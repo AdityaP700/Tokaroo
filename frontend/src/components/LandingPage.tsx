@@ -62,9 +62,7 @@ export const LandingPage: React.FC = () => {
         borderBottom: '1px solid var(--border)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: '#FAFAFA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--bg)' }} />
-          </div>
+          <img src="/ChatGPT_Image_May_24__2026__04_48_23_PM-removebg-preview.png" alt="Kangaroo logo" style={{ width: 26, height: 26, borderRadius: 6, objectFit: 'cover', boxShadow: '0 2px 10px rgba(0,0,0,0.4)' }} />
           <span style={{ fontWeight: 800, fontSize: '16px', letterSpacing: '-0.01em' }}>Tokaroo</span>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -208,56 +206,80 @@ export const LandingPage: React.FC = () => {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: 'var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
-            {/* Graph preview */}
-            <div style={{ padding: '1.5rem', background: 'var(--bg)' }}>
-              <div className="label" style={{ marginBottom: '12px' }}>Graph</div>
+            {/* Graph preview (enhanced) */}
+            <div style={{ padding: '1.5rem', background: 'var(--bg)', display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'stretch' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div className="label">Graph</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Nodes · Edges · Attention</div>
+              </div>
               <div style={{ height: '120px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                {/* Mini node cluster */}
                 {[
-                  { x: 40, y: 30, r: 10 }, { x: 90, y: 55, r: 14 }, { x: 140, y: 25, r: 8 },
-                  { x: 70, y: 80, r: 12 }, { x: 120, y: 70, r: 6 }, { x: 160, y: 60, r: 9 },
+                  { x: 38, y: 40, r: 10 }, { x: 90, y: 55, r: 16 }, { x: 140, y: 28, r: 8 },
+                  { x: 70, y: 86, r: 12 }, { x: 118, y: 72, r: 6 }, { x: 162, y: 62, r: 9 },
                 ].map((n, i) => (
                   <div key={i} style={{
                     position: 'absolute', left: n.x, top: n.y,
                     width: n.r * 2, height: n.r * 2, borderRadius: '50%',
-                    background: i === 1 ? '#FAFAFA' : '#2A2A2A',
-                    boxShadow: i === 1 ? '0 0 8px rgba(255,255,255,0.1)' : 'none',
+                    background: i === 1 ? 'rgba(250,250,250,0.95)' : 'rgba(255,255,255,0.06)',
+                    boxShadow: i === 1 ? '0 0 12px rgba(255,255,255,0.08)' : 'none',
+                    border: i === 1 ? '1px solid rgba(255,255,255,0.06)' : 'none'
                   }} />
                 ))}
+                {/* mini legend */}
+                <div style={{ position: 'absolute', right: 8, bottom: 8, display: 'flex', gap: '8px', alignItems: 'center', fontSize: '11px', color: 'var(--text-muted)' }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 4, background: 'rgba(250,250,250,0.95)' }} /> <span>Used</span>
+                  <div style={{ width: 8, height: 8, borderRadius: 4, background: 'rgba(249,115,22,0.8)' }} /> <span>Noise</span>
+                </div>
               </div>
-              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '12px', lineHeight: 1.5 }}>
-                Chunks as nodes. Edges as semantic flow. Center = highest relevance.
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                Visualize chunks as nodes and semantic edges. Bright nodes indicate high attention and usage.
               </div>
             </div>
 
-            {/* Token strip preview */}
-            <div style={{ padding: '1.5rem', background: 'var(--bg)' }}>
-              <div className="label" style={{ marginBottom: '12px' }}>Context Strip</div>
-              <div style={{ display: 'flex', gap: '2px', height: '32px', borderRadius: '4px', overflow: 'hidden', marginTop: '44px' }}>
-                {[0.8, 0.6, 0.3, 0.2, 0.15, 0.5, 0.7, 0.4].map((a, i) => (
-                  <div key={i} style={{
-                    flex: 1,
-                    background: `rgba(250,250,250,${(a * 0.7).toFixed(2)})`,
-                    borderBottom: i === 3 ? '2px solid var(--danger)' : 'none',
+            {/* Token strip preview (enhanced Flow) */}
+            <div style={{ padding: '1.5rem', background: 'var(--bg)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div className="label">Context Strip</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Width = tokens · Brightness = attention</div>
+              </div>
+              <div style={{ display: 'flex', gap: '2px', height: '36px', borderRadius: '6px', overflow: 'hidden', alignItems: 'center' }}>
+                {[0.85, 0.65, 0.35, 0.22, 0.18, 0.5, 0.75, 0.45].map((a, i) => (
+                  <div key={i} title={`Chunk ${i + 1}`} style={{
+                    flex: `${Math.max(0.6, a * 3)} 0 0`,
+                    minWidth: 6,
+                    background: `rgba(250,250,250,${(a * 0.75).toFixed(2)})`,
+                    borderBottom: i === 3 ? '3px solid var(--danger)' : 'none',
+                    opacity: i >= 2 && i <= 4 ? 0.6 : 1,
+                    transition: 'transform 0.18s',
                   }} />
                 ))}
               </div>
-              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '12px', lineHeight: 1.5 }}>
-                Width = tokens. Brightness = attention. Red border = risk.
+              <div style={{ display: 'flex', gap: '12px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                <div>⟲ Start bias</div>
+                <div style={{ opacity: 0.8 }}>↕ Middle decay</div>
+                <div>⚠ Risk marker</div>
               </div>
             </div>
 
-            {/* Sparkline preview */}
-            <div style={{ padding: '1.5rem', background: 'var(--bg)' }}>
-              <div className="label" style={{ marginBottom: '12px' }}>Attention</div>
-              <svg width="100%" height="60" viewBox="0 0 200 60" style={{ marginTop: '44px' }}>
-                <polyline
-                  points="0,20 25,15 50,30 75,45 100,50 125,35 150,18 175,12 200,22"
-                  fill="none" stroke="rgba(250,250,250,0.5)" strokeWidth="1.5"
-                />
-              </svg>
-              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '12px', lineHeight: 1.5 }}>
-                Real-time attention curve synced to nodes and tokens.
+            {/* Sparkline preview (enhanced) */}
+            <div style={{ padding: '1.5rem', background: 'var(--bg)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div className="label">Attention</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Low ↔ High</div>
+              </div>
+              <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="100%" height="60" viewBox="0 0 200 60">
+                  <defs>
+                    <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0%" stopColor="rgba(250,250,250,0.12)" />
+                      <stop offset="100%" stopColor="transparent" />
+                    </linearGradient>
+                  </defs>
+                  <polyline points="0,30 28,22 56,38 84,50 112,48 140,32 168,18 200,26" fill="none" stroke="rgba(250,250,250,0.65)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                Live attention distribution across the context window. Peaks indicate chunks the model focuses on.
               </div>
             </div>
           </div>
@@ -288,9 +310,7 @@ export const LandingPage: React.FC = () => {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ width: '18px', height: '18px', borderRadius: '4px', background: '#FAFAFA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--bg)' }} />
-          </div>
+          <img src="/ChatGPT_Image_May_24__2026__04_48_23_PM-removebg-preview.png" alt="Kangaroo logo" style={{ width: 20, height: 20, borderRadius: 4, objectFit: 'cover', boxShadow: '0 1px 6px rgba(0,0,0,0.25)' }} />
           <span style={{ fontSize: '14px', fontWeight: 700 }}>Tokaroo</span>
         </div>
         <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>AI Cognitive Visualization System</div>

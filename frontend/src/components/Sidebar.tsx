@@ -14,7 +14,20 @@ import {
 } from "lucide-react";
 import { useStore } from "../store/useStore";
 
-const navGroups = [
+interface NavItem {
+  id: string;
+  path: string;
+  label: string;
+  icon: React.ComponentType<any>;
+  disabled?: boolean;
+}
+
+interface NavGroup {
+  title: string;
+  items: NavItem[];
+}
+
+const navGroups: NavGroup[] = [
   {
     title: "Core",
     items: [
