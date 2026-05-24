@@ -8,6 +8,7 @@ import React, {
 import ForceGraph2D from "react-force-graph-2d";
 import { Maximize2, MousePointer2, RotateCcw, Sparkles } from "lucide-react";
 import { useStore, GRAPH_OVERLAY } from "../../store/useStore";
+import { BottomPanel as FlowView } from "./BottomPanel";
 
 // ── Step labels for progressive loading ──────────────────────────────────
 const SIMULATION_STEPS = [
@@ -158,7 +159,7 @@ function TokenContextStrip() {
         overflowY: "auto",
       }}
     >
-      <div className="label">Context Window · Linear View</div>
+      <div className="label">Tokens · Linear Breakdown</div>
       <div
         style={{
           display: "flex",
@@ -298,98 +299,6 @@ function TokenContextStrip() {
   );
 }
 
-// ── Attention heatmap view ────────────────────────────────────────────────
-function AttentionView() {
-  const { simulation, ui, setUI } = useStore();
-  const isEmpty = simulation.attention.length === 0;
-
-  if (isEmpty) {
-    return (
-      <div
-        style={{
-          padding: "3rem",
-          height: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "var(--text-muted)",
-          fontSize: "13px",
-        }}
-      >
-        Run a simulation to view attention heatmap
-      </div>
-    );
-  }
-
-  return (
-    <div
-      style={{
-        padding: "3rem 2.5rem",
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        gap: "1rem",
-      }}
-    >
-      <div className="label" style={{ marginBottom: "0.5rem" }}>
-        Attention Distribution
-      </div>
-      <div
-        style={{
-          display: "flex",
-          height: "56px",
-          borderRadius: "6px",
-          overflow: "hidden",
-          gap: "2px",
-        }}
-      >
-        {simulation.attention.map((a, i) => {
-          const chunk = simulation.chunks[i];
-          const isSelected = chunk?.id === ui.selectedNode;
-          const isHovered = chunk?.id === ui.hoveredNode;
-          return (
-            <div
-              key={i}
-              title={`Chunk ${i + 1}: ${(a * 100).toFixed(0)}%`}
-              style={{
-                flex: 1,
-                background: isSelected
-                  ? "#FAFAFA"
-                  : `rgba(250,250,250,${(a * 0.8).toFixed(2)})`,
-                borderRadius: "3px",
-                transition: "all 0.15s",
-                cursor: "pointer",
-                outline: isHovered
-                  ? "1px solid rgba(255,255,255,0.3)"
-                  : isSelected
-                    ? "1px solid #fff"
-                    : "none",
-                opacity: ui.selectedNode && !isSelected ? 0.3 : 1,
-              }}
-              onClick={() => setUI({ selectedNode: chunk?.id ?? null })}
-              onMouseEnter={() => setUI({ hoveredNode: chunk?.id ?? null })}
-              onMouseLeave={() => setUI({ hoveredNode: null })}
-            />
-          );
-        })}
-      </div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          fontSize: "10px",
-          color: "var(--text-muted)",
-          fontFamily: "var(--font-mono)",
-        }}
-      >
-        <span>Low attention</span>
-        <span>High attention</span>
-      </div>
-    </div>
-  );
-}
-
 // ── Main component ────────────────────────────────────────────────────────
 export const CoreVisualization: React.FC = () => {
   const { simulation, analysis, ui, setUI } = useStore();
@@ -397,6 +306,7 @@ export const CoreVisualization: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [isInspecting, setIsInspecting] = useState(false);
+  const [issueFiltered, setIssueFiltered] = useState(false);
 
   // Resize observer
   useEffect(() => {
@@ -504,8 +414,15 @@ export const CoreVisualization: React.FC = () => {
       const isIgnored = ignored.has(node.chunk_index); // high relevance but positionally lost
       const lostReason = node.lost_reason as string | null;
 
-      const hasFocus = selectedNode === null || isSelected || isNeighbour;
-      const opacity = hasFocus ? 1 : 0.1;
+      let hasFocus = selectedNode === null || isSelected || isNeighbour;
+
+      // If filtering by issue, only focus on nodes that are deemed high risk, ignored, or have a lost_reason
+      if (issueFiltered) {
+        const isProblemNode = node.risk_level === "high" || isIgnored || Boolean(lostReason);
+        hasFocus = isSelected || isHovered || isProblemNode;
+      }
+
+      const opacity = hasFocus ? 1 : 0.08;
       const attention = Math.max(0, Math.min(1, node.attention ?? 0));
       const relevance = Math.max(0, Math.min(1, node.relevance ?? 0));
       const radius = Math.max(5, Math.min(22, 5 + node.size / 18));
@@ -565,15 +482,42 @@ export const CoreVisualization: React.FC = () => {
       ctx.shadowBlur = shadowBlur;
       ctx.shadowColor = shadowColor;
 
-      // Outer halo ring (for used / selected / hovered / ignored nodes)
-      if (isSelected || isHovered || node.used_by_model || isIgnored) {
+      // Outer halo ring (for semantic meaning)
+      const isNoise = lostReason === "noise_attended";
+      const isLost = lostReason === "lost_in_middle";
+      const drawHalo = isSelected || isHovered || node.used_by_model || isIgnored || isNoise || isLost;
+
+      if (drawHalo) {
         ctx.beginPath();
-        ctx.arc(node.x, node.y, radius + 7 + attention * 8, 0, 2 * Math.PI);
-        ctx.strokeStyle = isIgnored
-          ? `rgba(239,68,68,${(0.2 + relevance * 0.15).toFixed(2)})`
-          : `rgba(255,255,255,${(0.05 + attention * 0.12).toFixed(2)})`;
-        ctx.lineWidth = (isSelected ? 2.2 : 1.2) / globalScale;
+        const haloRadius = radius + 7 + attention * 8;
+        ctx.arc(node.x, node.y, haloRadius, 0, 2 * Math.PI);
+
+        let strokeColor = `rgba(255,255,255,${(0.05 + attention * 0.12).toFixed(2)})`;
+        let lineWidth = (isSelected ? 2.2 : 1.2) / globalScale;
+
+        // Solid red glow = ignored relevant
+        if (isIgnored) {
+          strokeColor = "rgba(239,68,68,0.85)";
+          lineWidth = 2.5 / globalScale;
+          ctx.setLineDash([]);
+        // Dashed orange = noise
+        } else if (isNoise) {
+          strokeColor = "rgba(249,115,22,0.75)";
+          lineWidth = 1.5 / globalScale;
+          ctx.setLineDash([4 / globalScale, 4 / globalScale]);
+        // Thin gray = lost in middle
+        } else if (isLost) {
+          strokeColor = "rgba(107,114,128,0.5)";
+          lineWidth = 0.8 / globalScale;
+          ctx.setLineDash([]);
+        } else {
+          ctx.setLineDash([]);
+        }
+
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = lineWidth;
         ctx.stroke();
+        ctx.setLineDash([]); // Reset line dash
       }
 
       // Main fill
@@ -602,7 +546,7 @@ export const CoreVisualization: React.FC = () => {
         ctx.fillText(label, node.x, node.y + radius + fontSize * 1.4);
       }
     },
-    [neighbourMap],
+    [neighbourMap, issueFiltered],
   );
 
   const isEmpty = simulation.chunks.length === 0;
@@ -639,100 +583,100 @@ export const CoreVisualization: React.FC = () => {
         style={{
           position: "absolute",
           top: "1rem",
-          left: "50%",
-          transform: "translateX(-50%)",
-          display: "flex",
-          gap: "2px",
-          zIndex: 10,
-          background: "var(--elevated)",
-          border: "1px solid var(--border)",
-          borderRadius: "8px",
-          padding: "3px",
-        }}
-      >
-        {(["graph", "tokens", "attention"] as const).map((v) => (
-          <button
-            key={v}
-            onClick={() => setUI({ view: v })}
-            style={{
-              padding: "0.3rem 0.85rem",
-              borderRadius: "5px",
-              fontSize: "12px",
-              fontWeight: 600,
-              cursor: "pointer",
-              border: "none",
-              letterSpacing: "0.04em",
-              transition: "all 0.15s",
-              fontFamily: "var(--font-sans)",
-              background: ui.view === v ? "var(--surface)" : "transparent",
-              color:
-                ui.view === v ? "var(--text-primary)" : "var(--text-muted)",
-            }}
-          >
-            {v === "tokens"
-              ? "Context"
-              : v === "graph"
-                ? "Cause Graph"
-                : "Attention"}
-          </button>
-        ))}
-      </div>
-
-      {/* Top-left status badge */}
-      <div
-        style={{
-          position: "absolute",
-          top: "1rem",
           left: "1rem",
-          zIndex: 10,
+          right: "1rem",
           display: "flex",
-          alignItems: "center",
-          gap: "8px",
-          padding: "7px 10px",
-          borderRadius: "999px",
-          background: "rgba(18,18,18,0.72)",
-          border: "1px solid var(--border)",
-          backdropFilter: "blur(14px)",
-          color: "var(--text-secondary)",
-          fontSize: "12px",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          zIndex: 10,
+          pointerEvents: "none",
         }}
       >
-        <Sparkles size={14} />
-        <span>
-          {isEmpty
-            ? "Awaiting context"
-            : analysis.diagnosis
-              ? analysis.diagnosis.replaceAll("_", " ")
-              : `Run ${simulation.runId}`}
-        </span>
-      </div>
-
-      {/* Top-right stats */}
-      {!isEmpty && (
+        {/* Left: Issue Pill */}
         <div
+          onClick={() => {
+            if (overlay) setIssueFiltered((ov) => !ov);
+          }}
           style={{
-            position: "absolute",
-            right: "1rem",
-            top: "1rem",
-            zIndex: 10,
-            display: "grid",
-            gridTemplateColumns: "repeat(3, minmax(70px, 1fr))",
-            gap: "6px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "7px 12px",
+            borderRadius: "999px",
+            background: overlay ? `${overlay.color}18` : "rgba(18,18,18,0.72)",
+            border: `1px solid ${overlay ? overlay.color + "44" : "var(--border)"}`,
+            backdropFilter: "blur(14px)",
+            color: overlay ? overlay.color : "var(--text-secondary)",
+            fontSize: "12px",
+            fontWeight: 600,
+            pointerEvents: "auto",
+            cursor: overlay ? "pointer" : "default",
+            transition: "all 0.2s",
+            boxShadow: overlay ? `0 0 12px ${overlay.color}22` : "none",
           }}
         >
-          {[
+          {overlay ? overlay.icon : <Sparkles size={14} />}
+          <span>
+            {isEmpty
+              ? "Awaiting context"
+              : analysis.diagnosis
+                ? analysis.diagnosis.replaceAll("_", " ")
+                : `Run ${simulation.runId}`}
+          </span>
+        </div>
+
+        {/* Center: Tabs */}
+        <div
+          style={{
+            display: "flex",
+            gap: "2px",
+            background: "var(--elevated)",
+            border: "1px solid var(--border)",
+            borderRadius: "8px",
+            padding: "3px",
+            pointerEvents: "auto",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          }}
+        >
+          {(["graph", "flow", "tokens"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setUI({ view: v })}
+              style={{
+                padding: "0.4rem 1.2rem",
+                borderRadius: "5px",
+                fontSize: "12px",
+                fontWeight: 600,
+                cursor: "pointer",
+                border: "none",
+                letterSpacing: "0.02em",
+                transition: "all 0.15s",
+                fontFamily: "var(--font-sans)",
+                background: ui.view === v ? "var(--surface)" : "transparent",
+                color:
+                  ui.view === v ? "var(--text-primary)" : "var(--text-muted)",
+              }}
+            >
+              {v === "graph" ? "Cause" : v === "flow" ? "Flow" : "Tokens"}
+            </button>
+          ))}
+        </div>
+
+        {/* Right: Stats */}
+        <div style={{ display: "flex", gap: "6px", pointerEvents: "auto" }}>
+          {!isEmpty && [
             {
               k: "In Prompt",
               v: `${graphStats.used}/${simulation.chunks.length}`,
               danger: false,
             },
             {
-              k: "Risk Nodes",
+              k: "Risk",
               v: String(graphStats.risk),
               danger: graphStats.risk > 0,
             },
             {
-              k: "Attn Waste",
+              k: "Waste",
               v: graphStats.waste,
               danger: graphStats.risk > 0,
             },
@@ -740,24 +684,30 @@ export const CoreVisualization: React.FC = () => {
             <div
               key={item.k}
               style={{
-                padding: "7px 9px",
+                padding: "7px 10px",
                 borderRadius: "8px",
                 background: "rgba(18,18,18,0.72)",
-                border: `1px solid ${item.danger ? "rgba(220,38,38,0.42)" : "var(--border)"}`,
+                border: `1px solid ${item.danger ? "rgba(220,38,38,0.3)" : "var(--border)"}`,
                 backdropFilter: "blur(14px)",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
               }}
             >
               <div
                 className="label"
-                style={{ fontSize: "9px", marginBottom: "1px" }}
+                style={{
+                  fontSize: "10px",
+                  color: item.danger ? "var(--danger)" : "var(--text-muted)",
+                }}
               >
-                {item.k}
+                {item.k}:
               </div>
               <div
                 className="value-mono"
                 style={{
                   color: item.danger ? "var(--danger)" : "var(--text-primary)",
-                  fontSize: "13px",
+                  fontSize: "12px",
                 }}
               >
                 {item.v}
@@ -765,7 +715,7 @@ export const CoreVisualization: React.FC = () => {
             </div>
           ))}
         </div>
-      )}
+      </div>
 
       {/* Bottom-left controls */}
       <div
@@ -929,7 +879,11 @@ export const CoreVisualization: React.FC = () => {
       )}
 
       {ui.view === "tokens" && <TokenContextStrip />}
-      {ui.view === "attention" && <AttentionView />}
+      {ui.view === "flow" && (
+        <div style={{ position: "absolute", inset: 0, paddingTop: "4rem", overflow: "hidden", pointerEvents: "auto" }}>
+          <FlowView />
+        </div>
+      )}
 
       {/* ── Progressive loading overlay ──────────────────────────────────── */}
       {simulation.loading && (

@@ -9,7 +9,7 @@ import { CompareView } from '../CompareView';
 import { RagView } from '../RagView';
 
 const VIEW_LABELS: Record<string, string> = {
-  context: 'Context Simulator',
+  context: 'Context Debugger',
   model: 'Model Compare',
   rag: 'RAG Sandbox',
 };
@@ -58,47 +58,17 @@ export const MainWorkspace: React.FC = () => {
         </div>
 
         {currentView === 'context' && (
-          <>
-            <div className="app-panels" style={{ flex: 1, display: 'flex', gap: '10px', minHeight: 0 }}>
-              <div className="panel-side" style={{ width: '320px', flexShrink: 0 }}>
-                <InputConsole />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <CoreVisualization />
-              </div>
-              <div className="panel-side" style={{ width: '320px', flexShrink: 0 }}>
-                <AnalysisEngine />
-              </div>
+          <div className="app-panels" style={{ flex: 1, display: 'flex', gap: '10px', minHeight: 0 }}>
+            <div className="panel-side" style={{ width: '320px', flexShrink: 0 }}>
+              <InputConsole />
             </div>
-
-            <div style={{
-              height: bottomCollapsed ? '28px' : '150px',
-              transition: 'height 0.25s ease',
-              flexShrink: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              marginTop: '8px',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4px' }}>
-                <button onClick={() => setBottomCollapsed(v => !v)} style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: 'var(--text-muted)',
-                  fontSize: '11px',
-                  letterSpacing: '0.08em',
-                  padding: '2px 14px',
-                }}>
-                  {bottomCollapsed ? 'Show context strip' : 'Collapse context strip'}
-                </button>
-              </div>
-              {!bottomCollapsed && (
-                <div style={{ flex: 1, minHeight: 0 }}>
-                  <BottomPanel />
-                </div>
-              )}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <CoreVisualization />
             </div>
-          </>
+            <div className="panel-side" style={{ width: '320px', flexShrink: 0 }}>
+              <AnalysisEngine />
+            </div>
+          </div>
         )}
 
         {currentView === 'model' && (

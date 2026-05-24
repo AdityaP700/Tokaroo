@@ -345,7 +345,7 @@ interface TokarooState {
   ui: {
     selectedNode: string | null;
     hoveredNode: string | null;
-    view: "graph" | "tokens" | "attention";
+    view: "graph" | "flow" | "tokens";
   };
   setInput: (data: Partial<TokarooState["input"]>) => void;
   setSimulation: (data: Partial<TokarooState["simulation"]>) => void;

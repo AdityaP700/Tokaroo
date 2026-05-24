@@ -26,10 +26,10 @@ export const BottomPanel: React.FC = () => {
       {/* ── Context Strip (tokens as spatial blocks) ──────────────────── */}
       <div style={{ flex: 1, padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-          <div className="label">Context Strip</div>
+          <div className="label">Attention Flow</div>
           {!isEmpty && (
             <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              width = tokens · brightness = attention · red = risk
+              Faded = Lost in middle · Bright = High attention · Red = Risk
             </div>
           )}
         </div>

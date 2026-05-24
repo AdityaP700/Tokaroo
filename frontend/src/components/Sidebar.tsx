@@ -1,12 +1,37 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, BarChart2, Layers, ArrowLeft } from 'lucide-react';
+import { Activity, BarChart2, Layers, ArrowLeft, AlertOctagon, Database, Eye, BookOpen, FileText } from 'lucide-react';
 import { useStore } from '../store/useStore';
 
-const navItems = [
-  { id: 'context', path: '/app/context', label: 'Context Sim',   icon: Activity  },
-  { id: 'model',   path: '/app/model',   label: 'Model Compare', icon: BarChart2 },
-  { id: 'rag',     path: '/app/rag',     label: 'RAG Sandbox',   icon: Layers    },
+const navGroups = [
+  {
+    title: 'Core',
+    items: [
+      { id: 'context', path: '/app/context', label: 'Context Debugger', icon: Activity },
+    ]
+  },
+  {
+    title: 'Analysis',
+    items: [
+      { id: 'cause-explorer', path: '#', label: 'Cause Explorer', icon: AlertOctagon, disabled: true },
+      { id: 'retrieval-debugger', path: '#', label: 'Retrieval Debugger (future)', icon: Database, disabled: true },
+      { id: 'attention-inspector', path: '#', label: 'Attention Inspector (future)', icon: Eye, disabled: true },
+    ]
+  },
+  {
+    title: 'Playground',
+    items: [
+      { id: 'rag', path: '/app/rag', label: 'RAG Sandbox', icon: Layers },
+      { id: 'model', path: '/app/model', label: 'Model Compare', icon: BarChart2 },
+    ]
+  },
+  {
+    title: 'Learn',
+    items: [
+      { id: 'failure-patterns', path: '#', label: 'Failure Patterns', icon: AlertOctagon, disabled: true },
+      { id: 'docs', path: '#', label: 'Docs / Examples', icon: FileText, disabled: true },
+    ]
+  }
 ];
 
 interface SidebarProps {
@@ -60,43 +85,58 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView }) => {
       <div style={{ height: '1px', background: 'var(--border)', margin: '0 0 0.75rem 0' }} />
 
       {/* Nav */}
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 }}>
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = currentView === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => navigate(item.path)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '10px',
-                padding: '9px 11px', width: '100%', borderRadius: 'var(--radius-sm)',
-                border: 'none', cursor: 'pointer', textAlign: 'left',
-                transition: 'background 0.12s, color 0.12s',
-                background: isActive ? 'var(--elevated)' : 'transparent',
-              }}
-            >
-              <Icon
-                size={16}
-                style={{ color: isActive ? 'var(--text-primary)' : 'var(--text-muted)', flexShrink: 0 }}
-              />
-              <span style={{
-                fontSize: '14px', fontWeight: isActive ? 600 : 400,
-                color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-                transition: 'color 0.12s',
-              }}>
-                {item.label}
-              </span>
-              {isActive && (
-                <div style={{
-                  marginLeft: 'auto', width: '5px', height: '5px', borderRadius: '50%',
-                  background: 'var(--text-primary)', flexShrink: 0,
-                }} />
-              )}
-            </button>
-          );
-        })}
-      </nav>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', flex: 1, overflowY: 'auto' }}>
+        {navGroups.map((group, groupIdx) => (
+          <div key={groupIdx}>
+            <div style={{
+              fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)',
+              textTransform: 'uppercase', letterSpacing: '0.05em',
+              marginBottom: '6px', paddingLeft: '11px'
+            }}>
+              {group.title}
+            </div>
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = currentView === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => { if (!item.disabled) navigate(item.path); }}
+                    disabled={item.disabled}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '10px',
+                      padding: '8px 11px', width: '100%', borderRadius: 'var(--radius-sm)',
+                      border: 'none', cursor: item.disabled ? 'not-allowed' : 'pointer', textAlign: 'left',
+                      transition: 'background 0.12s, color 0.12s',
+                      background: isActive ? 'var(--elevated)' : 'transparent',
+                      opacity: item.disabled ? 0.5 : 1,
+                    }}
+                  >
+                    <Icon
+                      size={15}
+                      style={{ color: isActive ? 'var(--text-primary)' : 'var(--text-muted)', flexShrink: 0 }}
+                    />
+                    <span style={{
+                      fontSize: '13px', fontWeight: isActive ? 500 : 400,
+                      color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      transition: 'color 0.12s',
+                    }}>
+                      {item.label}
+                    </span>
+                    {isActive && (
+                      <div style={{
+                        marginLeft: 'auto', width: '4px', height: '4px', borderRadius: '50%',
+                        background: 'var(--text-primary)', flexShrink: 0,
+                      }} />
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+        ))}
+      </div>
 
       {/* Status */}
       <div style={{
