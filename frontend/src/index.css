@@ -547,6 +547,448 @@ button:focus-visible {
     animation: fadeIn 0.3s ease;
 }
 
+/* ── Landing page refresh ─────────────────────────────────────────────── */
+.modern-landing {
+    position: relative;
+    min-height: 100vh;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at top left, rgba(34, 193, 195, 0.18), transparent 30%),
+        radial-gradient(circle at 80% 15%, rgba(106, 133, 241, 0.16), transparent 28%),
+        linear-gradient(180deg, #06080d 0%, #090d14 52%, #06080d 100%);
+    color: var(--text-primary);
+}
+
+.modern-landing__grid,
+.modern-landing__glow {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.modern-landing__grid {
+    background-image:
+        linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-size: 72px 72px;
+    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.5), transparent 90%);
+    opacity: 0.22;
+}
+
+.modern-landing__glow {
+    filter: blur(36px);
+    opacity: 0.8;
+    animation: landingFloat 10s ease-in-out infinite;
+}
+
+.modern-landing__glow--left {
+    width: 28rem;
+    height: 28rem;
+    left: -8rem;
+    top: 4rem;
+    background: radial-gradient(circle, rgba(34, 193, 195, 0.24), transparent 68%);
+}
+
+.modern-landing__glow--right {
+    width: 32rem;
+    height: 32rem;
+    right: -10rem;
+    top: 12rem;
+    background: radial-gradient(circle, rgba(106, 133, 241, 0.22), transparent 70%);
+    animation-delay: -4s;
+}
+
+.modern-landing__nav,
+.modern-landing__main {
+    position: relative;
+    z-index: 1;
+}
+
+.modern-landing__nav {
+    position: sticky;
+    top: 0;
+    backdrop-filter: blur(18px);
+    background: rgba(6, 8, 13, 0.7);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.modern-landing__nav-inner,
+.modern-landing__hero,
+.modern-landing__feature-grid,
+.modern-landing__strip,
+.modern-landing__diagnostics {
+    width: min(1200px, calc(100% - 2rem));
+    margin: 0 auto;
+}
+
+.modern-landing__nav-inner {
+    min-height: 76px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.modern-landing__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--text-primary);
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    cursor: pointer;
+}
+
+.modern-landing__brand-mark {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.6rem;
+    object-fit: cover;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+.modern-landing__nav-links {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+.modern-landing__nav-links a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.95rem;
+    transition: color 0.15s ease;
+}
+
+.modern-landing__nav-links a:hover {
+    color: var(--text-primary);
+}
+
+.modern-landing__main {
+    padding: 4rem 0 5rem;
+}
+
+.modern-landing__hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: 2rem;
+    align-items: center;
+    min-height: calc(100vh - 76px - 9rem);
+}
+
+.modern-landing__hero-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.modern-landing__eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: fit-content;
+    padding: 0.55rem 0.9rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary);
+    font-size: 0.84rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.modern-landing__eyebrow-dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    background: #22c1c3;
+    box-shadow: 0 0 16px rgba(34, 193, 195, 0.9);
+}
+
+.modern-landing__hero h1 {
+    font-size: clamp(3.2rem, 7vw, 5.6rem);
+    line-height: 0.96;
+    letter-spacing: -0.06em;
+    margin: 0;
+    max-width: 11ch;
+}
+
+.modern-landing__hero p {
+    max-width: 34rem;
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    line-height: 1.7;
+}
+
+.modern-landing__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.85rem;
+    margin-top: 0.5rem;
+}
+
+.landing-cta {
+    width: auto;
+    padding: 1rem 1.4rem;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: linear-gradient(135deg, #ffffff, #d8f7f6);
+    color: #050505;
+    font-weight: 700;
+    font-size: 0.95rem;
+    cursor: pointer;
+    box-shadow: 0 18px 40px rgba(34, 193, 195, 0.18);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.landing-cta:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 22px 50px rgba(34, 193, 195, 0.24);
+}
+
+.landing-cta--small {
+    padding: 0.85rem 1.1rem;
+}
+
+.landing-cta--ghost {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+    box-shadow: none;
+}
+
+.landing-cta--ghost:hover {
+    border-color: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.07);
+    box-shadow: none;
+}
+
+.modern-landing__stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.85rem;
+    margin-top: 0.75rem;
+}
+
+.modern-landing__stat-card,
+.modern-landing__feature-card,
+.modern-landing__mini-panel,
+.modern-landing__strip,
+.modern-landing__diagnostics {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+}
+
+.modern-landing__stat-card {
+    padding: 1rem;
+    border-radius: 1rem;
+}
+
+.modern-landing__stat-card strong {
+    display: block;
+    font-size: 1.5rem;
+    letter-spacing: -0.04em;
+}
+
+.modern-landing__stat-card span,
+.modern-landing__feature-card p,
+.modern-landing__mini-panel span,
+.modern-landing__strip span,
+.modern-landing__diagnostics span {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.modern-landing__visual {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.modern-landing__visual-frame {
+    position: relative;
+    overflow: hidden;
+    border-radius: 1.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(10, 12, 17, 0.9);
+    box-shadow: 0 38px 90px rgba(0, 0, 0, 0.45);
+}
+
+.modern-landing__visual-image {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.modern-landing__badge {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    padding: 0.55rem 0.9rem;
+    border-radius: 999px;
+    background: rgba(8, 12, 16, 0.88);
+    border: 1px solid rgba(34, 193, 195, 0.28);
+    color: #7ff1ef;
+    font-size: 0.82rem;
+    font-weight: 700;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.modern-landing__scanline {
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 18%;
+    background: linear-gradient(180deg, transparent, rgba(34, 193, 195, 0.12));
+    animation: scanline 6s ease-in-out infinite;
+}
+
+.modern-landing__mini-panel {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    overflow: hidden;
+    border-radius: 1rem;
+}
+
+.modern-landing__mini-panel > div {
+    padding: 1rem 1.1rem;
+    background: rgba(8, 10, 15, 0.9);
+}
+
+.modern-landing__mini-panel strong {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.95rem;
+    line-height: 1.45;
+}
+
+.modern-landing__feature-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 1.75rem;
+}
+
+.modern-landing__feature-card {
+    padding: 1.3rem;
+    border-radius: 1.2rem;
+}
+
+.modern-landing__feature-kicker {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.9rem;
+    margin-bottom: 1rem;
+    background: linear-gradient(135deg, rgba(34, 193, 195, 0.95), rgba(106, 133, 241, 0.9));
+    box-shadow: 0 14px 28px rgba(34, 193, 195, 0.16);
+}
+
+.modern-landing__feature-card h3 {
+    margin: 0 0 0.5rem;
+    font-size: 1.05rem;
+    letter-spacing: -0.02em;
+}
+
+.modern-landing__feature-card p {
+    margin: 0;
+    line-height: 1.6;
+}
+
+.modern-landing__strip,
+.modern-landing__diagnostics {
+    margin-top: 1rem;
+    border-radius: 1.25rem;
+    padding: 1rem 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.modern-landing__strip strong,
+.modern-landing__diagnostics strong {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 1rem;
+}
+
+.modern-landing__diagnostics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@keyframes landingFloat {
+    0%,
+    100% {
+        transform: translate3d(0, 0, 0) scale(1);
+    }
+    50% {
+        transform: translate3d(0, -12px, 0) scale(1.03);
+    }
+}
+
+@keyframes scanline {
+    0%,
+    100% {
+        transform: translateY(-10%);
+        opacity: 0.45;
+    }
+    50% {
+        transform: translateY(12%);
+        opacity: 0.85;
+    }
+}
+
+@media (max-width: 960px) {
+    .modern-landing__nav-links {
+        display: none;
+    }
+
+    .modern-landing__hero,
+    .modern-landing__feature-grid,
+    .modern-landing__diagnostics {
+        grid-template-columns: 1fr;
+    }
+
+    .modern-landing__hero {
+        padding-top: 1rem;
+    }
+
+    .modern-landing__stats {
+        grid-template-columns: 1fr;
+    }
+
+    .modern-landing__strip,
+    .modern-landing__diagnostics {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+@media (max-width: 640px) {
+    .modern-landing__main {
+        padding-top: 2rem;
+    }
+
+    .modern-landing__nav-inner,
+    .modern-landing__nav-links,
+    .modern-landing__actions {
+        gap: 0.75rem;
+    }
+
+    .modern-landing__hero h1 {
+        max-width: 100%;
+    }
+
+    .modern-landing__feature-grid,
+    .modern-landing__mini-panel {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* ── Responsive ─────────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
     .sidebar-full {
