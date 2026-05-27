@@ -26,8 +26,26 @@ MIXED_CORPUS = (
     "Hallucination papers warn about confident but incorrect generation. "
     "Agentic memory focuses on tool usage history rather than retrieval relevance. "
     "Embeddings compress semantics but can blur rare keywords. "
-    "Vector quantization reduces memory but can distort similarity.
+    "Vector quantization reduces memory but can distort similarity."
 ")
+EXTREME_DISTRACTOR_CORPUS = (
+    "Multi-query retrieval overlap and semantic drift are common in noisy pipelines. "
+    "Reranking helps mitigate retrieval noise in long-context systems. "
+    "Kubernetes clusters require careful resource scheduling and autoscaling. "
+    "RLHF aligns responses using preference data but does not fix retrieval recall. "
+    "SQL databases optimize joins and indexing strategies for transactional workloads. "
+    "CNNs excel at spatial feature extraction for vision tasks. "
+    "GPU optimization focuses on memory bandwidth and kernel fusion. "
+    "Transformer attention bias can ignore middle context in long sequences."
+)
+NARROW_BROAD_CORPUS = (
+    "Retrieval overlap measures how often different rewrites fetch identical chunks. "
+    "Semantic drift occurs when embeddings match related but incorrect content. "
+    "Multi-query retrieval can increase recall but also add noise. "
+    "Reranking uses cross-encoders to prioritize the most relevant chunks. "
+    "Context ordering affects attention and can create lost-in-the-middle failures. "
+    "BM25 emphasizes lexical overlap while dense retrieval emphasizes semantics."
+)
 
 
 def test_api_health():
@@ -420,6 +438,68 @@ def test_simulate_rag_pipeline_reports_query_diversity_metrics():
     assert result["total_retrieved_chunks"] >= result["unique_retrieved_chunks"]
     assert 0.0 <= result["retrieval_diversity"] <= 1.0
     assert 0.0 <= result["retrieval_overlap"] <= 1.0
+
+
+def test_simulate_rag_pipeline_handles_extreme_distractors():
+    token_ids = get_tokens(EXTREME_DISTRACTOR_CORPUS, SUPPORTED_MODELS["gpt-4o"]["tokenizer"])
+
+    result = simulate_rag_pipeline(
+        token_ids=token_ids,
+        chunk_size=36,
+        query="Why does retrieval overlap happen in multi-query systems?",
+        overlap=6,
+        tokenizer_name=SUPPORTED_MODELS["gpt-4o"]["tokenizer"],
+        top_k=4,
+        final_k=4,
+        retrieval_strategy="relevance_sorted",
+        context_window=SUPPORTED_MODELS["gpt-4o"]["context_window"],
+        original_text=EXTREME_DISTRACTOR_CORPUS,
+        query_transformer="multi_query",
+        query_variants_max=6,
+    )
+
+    assert isinstance(result.get("variant_retrievals"), list)
+    assert result["variant_retrievals"]
+    assert result["total_retrieved_chunks"] >= result["unique_retrieved_chunks"]
+
+
+def test_simulate_rag_pipeline_compares_narrow_vs_broad_queries():
+    token_ids = get_tokens(NARROW_BROAD_CORPUS, SUPPORTED_MODELS["gpt-4o"]["tokenizer"])
+
+    narrow = simulate_rag_pipeline(
+        token_ids=token_ids,
+        chunk_size=40,
+        query="retrieval overlap in multi-query systems",
+        overlap=6,
+        tokenizer_name=SUPPORTED_MODELS["gpt-4o"]["tokenizer"],
+        top_k=4,
+        final_k=4,
+        retrieval_strategy="relevance_sorted",
+        context_window=SUPPORTED_MODELS["gpt-4o"]["context_window"],
+        original_text=NARROW_BROAD_CORPUS,
+        query_transformer="multi_query",
+        query_variants_max=6,
+    )
+
+    broad = simulate_rag_pipeline(
+        token_ids=token_ids,
+        chunk_size=40,
+        query="how do long context systems fail with retrieval and attention",
+        overlap=6,
+        tokenizer_name=SUPPORTED_MODELS["gpt-4o"]["tokenizer"],
+        top_k=4,
+        final_k=4,
+        retrieval_strategy="relevance_sorted",
+        context_window=SUPPORTED_MODELS["gpt-4o"]["context_window"],
+        original_text=NARROW_BROAD_CORPUS,
+        query_transformer="multi_query",
+        query_variants_max=6,
+    )
+
+    assert 0.0 <= narrow["retrieval_diversity"] <= 1.0
+    assert 0.0 <= broad["retrieval_diversity"] <= 1.0
+    assert narrow["total_retrieved_chunks"] >= narrow["unique_retrieved_chunks"]
+    assert broad["total_retrieved_chunks"] >= broad["unique_retrieved_chunks"]
 
 
 def test_simulate_rag_pipeline_flags_used_but_low_relevance_chunk_as_position_bias(monkeypatch):
