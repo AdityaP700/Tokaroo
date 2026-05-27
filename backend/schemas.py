@@ -56,6 +56,8 @@ class RagChunkRequest(BaseModel):
     top_k: Optional[int] = Field(default=5, description="Number of chunks retrieved by Vector DB")
     final_k: Optional[int] = Field(default=4, ge=1, description="Number of chunks kept after reranking")
     retrieval_strategy: Optional[str] = Field(default="relevance_sorted", description="'sequential' or 'relevance_sorted'")
+    query_transformer: Optional[str] = Field(default="baseline", description="'baseline' or 'multi_query'")
+    query_variants_max: Optional[int] = Field(default=5, ge=1, le=10, description="Max rewritten queries to emit")
     auto_optimize: Optional[bool] = Field(default=True, description="Enable 2-pass adaptive optimization")
 
 class BenchmarkRequest(BaseModel):
@@ -117,6 +119,8 @@ class RagChunkResponse(BaseModel):
     extra_tokens_due_to_overlap: int
     error: Optional[str] = None
     retrieval_mode: Optional[str] = None
+    query_strategy: Optional[str] = None
+    query_variants: Optional[List[str]] = None
     reranked: Optional[bool] = None
     rerank_scores: Optional[List[float]] = None
     retrieval_analysis: Optional[Dict[str, float]] = None

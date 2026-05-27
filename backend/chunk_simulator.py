@@ -3,6 +3,7 @@ import copy
 import re
 from tokenizer_engine import decode_tokens
 from context_simulator import calculate_attention_weights
+from query_transformers import transform_query
 
 WORD_PATTERN = re.compile(r"[A-Za-z0-9]+")
 _EMBEDDING_MODEL = None
@@ -164,6 +165,8 @@ def simulate_rag_pipeline(
     context_window: int,
     final_k: int | None = None,
     original_text: str | None = None,
+    query_transformer: str | None = "baseline",
+    query_variants_max: int = 5,
 ) -> dict:
     if overlap > chunk_size * 0.5:
         overlap = int(chunk_size * 0.2)
@@ -204,20 +207,31 @@ def simulate_rag_pipeline(
     retrieval_mode = "hybrid"
     if total_chunks_created > 0:
         query = query or original_text or ""
-        query_terms = _normalized_words(query)
-        query_embedding = _encode_texts([query]) if query else None
+        variants = transform_query(query, strategy=query_transformer, max_variants=query_variants_max)
+        query_texts = [variant.text for variant in variants] or [query]
+        query_terms_list = [_normalized_words(text) for text in query_texts]
+        query_embedding = _encode_texts(query_texts) if query_texts else None
         chunk_texts = [chunk["decoded_text"] for chunk in all_chunks]
         chunk_embeddings = _encode_texts(chunk_texts) if query_embedding is not None else None
 
-        if query_terms or query_embedding is not None:
-            query_vector = query_embedding[0] if query_embedding is not None else None
+        if any(query_terms_list) or query_embedding is not None:
             for i, chunk in enumerate(all_chunks):
                 chunk_terms = _normalized_words(chunk["decoded_text"])
-                keyword_score = len(query_terms & chunk_terms) / max(1, len(query_terms)) if query_terms else 0.0
-                embedding_score = float(chunk_embeddings[i] @ query_vector) if query_vector is not None and chunk_embeddings is not None else 0.0
+                keyword_scores = [
+                    len(query_terms & chunk_terms) / max(1, len(query_terms)) if query_terms else 0.0
+                    for query_terms in query_terms_list
+                ]
+                keyword_score = max(keyword_scores) if keyword_scores else 0.0
+
+                if query_embedding is not None and chunk_embeddings is not None:
+                    embedding_scores = [float(chunk_embeddings[i] @ query_vector) for query_vector in query_embedding]
+                    embedding_score = max(embedding_scores) if embedding_scores else 0.0
+                else:
+                    embedding_score = 0.0
+
                 chunk["keyword_score"] = round(keyword_score, 3)
-                chunk["embedding_score"] = round(embedding_score, 3) if chunk_embeddings is not None and query_vector is not None else None
-                if chunk_embeddings is not None and query_vector is not None:
+                chunk["embedding_score"] = round(embedding_score, 3) if query_embedding is not None and chunk_embeddings is not None else None
+                if chunk_embeddings is not None and query_embedding is not None:
                     chunk["similarity_score"] = round((0.5 * embedding_score) + (0.5 * keyword_score), 3)
                 else:
                     chunk["similarity_score"] = round(keyword_score, 3)
@@ -243,7 +257,8 @@ def simulate_rag_pipeline(
 
     # Initial retrieval, then rerank
     retrieved_chunks = all_chunks[:top_k]
-    reranked_chunks = rerank_chunks(query or original_text or "", retrieved_chunks)
+    rerank_query = query or original_text or ""
+    reranked_chunks = rerank_chunks(rerank_query, retrieved_chunks)
 
     # -------------------------------------------------------------
     # CONTEXT FILTERING (PRE-PROMPT)
@@ -393,6 +408,8 @@ def simulate_rag_pipeline(
             "error": "context_window_overflow",
             "attention_curve": [],
             "retrieval_mode": retrieval_mode,
+            "query_strategy": query_transformer,
+            "query_variants": [variant.text for variant in variants] if total_chunks_created > 0 else [],
             "reranked": reranked,
             "rerank_scores": rerank_scores,
             "retrieval_analysis": retrieval_analysis,
@@ -477,6 +494,8 @@ def simulate_rag_pipeline(
                 "chunks": valid_chunks,
                 "attention_curve": [round(w, 3) for w in positional_weights],
                 "retrieval_mode": retrieval_mode,
+                "query_strategy": query_transformer,
+                "query_variants": [variant.text for variant in variants] if total_chunks_created > 0 else [],
                 "reranked": reranked,
                 "rerank_scores": rerank_scores,
                 "retrieval_analysis": retrieval_analysis,
@@ -511,6 +530,8 @@ def simulate_rag_pipeline(
         "chunks": valid_chunks,
         "attention_curve": [round(w, 3) for w in positional_weights],
         "retrieval_mode": retrieval_mode,
+        "query_strategy": query_transformer,
+        "query_variants": [variant.text for variant in variants] if total_chunks_created > 0 else [],
         "reranked": reranked,
         "rerank_scores": rerank_scores,
         "retrieval_analysis": retrieval_analysis,

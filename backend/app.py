@@ -170,7 +170,9 @@ def simulate_rag(request: RagChunkRequest):
         final_k=request.final_k,
         retrieval_strategy=retrieval_strategy,
         context_window=config["context_window"],
-        original_text=request.text
+        original_text=request.text,
+        query_transformer=request.query_transformer,
+        query_variants_max=request.query_variants_max,
     )
 
     # ---------------------------------------------------------
@@ -197,7 +199,9 @@ def simulate_rag(request: RagChunkRequest):
             final_k=request.final_k,
             retrieval_strategy=retrieval_strategy,
             context_window=config["context_window"],
-            original_text=request.text
+            original_text=request.text,
+            query_transformer=request.query_transformer,
+            query_variants_max=request.query_variants_max,
         )
         # Re-analyze with the new data
         insights = generate_rag_diagnosis(rag_data, new_top_k, retrieval_strategy, new_chunk_size)
@@ -211,6 +215,8 @@ def simulate_rag(request: RagChunkRequest):
         extra_tokens_due_to_overlap=rag_data["extra_tokens_due_to_overlap"],
         error=rag_data.get("error"),
         retrieval_mode=rag_data.get("retrieval_mode"),
+        query_strategy=rag_data.get("query_strategy"),
+        query_variants=rag_data.get("query_variants"),
         reranked=rag_data.get("reranked"),
         rerank_scores=rag_data.get("rerank_scores"),
         retrieval_analysis=rag_data.get("retrieval_analysis"),
@@ -233,13 +239,13 @@ async def _mock_db_call(source: str, delay: float, simulate_faults: bool) -> lis
     if simulate_faults and source == "semantic":
         await asyncio.sleep(1.0)
         raise TimeoutError("Semantic DB unreachable")
-    
+
     await asyncio.sleep(delay)
     return [{"id": f"{source}_1", "score": 0.8, "source": source}]
 
 def _mock_rerank_batch(chunks: list, batch_size: int) -> list:
     # Throughput vs Latency relationship:
-    # More chunks fit in a batch = fewer loops = faster throughput, 
+    # More chunks fit in a batch = fewer loops = faster throughput,
     # but actual GPU inference per batch scales.
     num_batches = max(1, len(chunks) // batch_size + (1 if len(chunks) % batch_size else 0))
     time.sleep(0.02 * num_batches) # GPU overhead scaled by batch efficiency
@@ -264,7 +270,7 @@ def _mock_diagnostic_batch(chunks: list) -> dict:
 
 async def _process_single_query(retrieval_configs, batch_size: int, simulate_faults: bool):
     stages = {}
-    
+
     # 1. Retrieval Phase (with safe_call / gather exceptions)
     t0 = time.perf_counter()
     tasks = [_mock_db_call(src, delay, simulate_faults) for src, delay in retrieval_configs]
@@ -276,15 +282,15 @@ async def _process_single_query(retrieval_configs, batch_size: int, simulate_fau
             failed_sources += 1
         else:
             chunks.extend(r)
-    
+
     # Case 4: Empty Retrieval
     if not chunks:
         stages['error'] = "no_context"
-    
+
     t1 = time.perf_counter()
     stages['retrieval_ms'] = round((t1 - t0) * 1000, 2)
     stages['failed_sources'] = failed_sources
-    
+
     # 2. Rerank Phase (with Timeout fallbacks)
     try:
         rerank_task = asyncio.to_thread(_mock_rerank_batch, chunks, batch_size)
@@ -293,16 +299,16 @@ async def _process_single_query(retrieval_configs, batch_size: int, simulate_fau
         stages['rerank_status'] = "success"
     except asyncio.TimeoutError:
         stages['rerank_status'] = "degraded_fallback_used"
-        
+
     t2 = time.perf_counter()
     stages['rerank_ms'] = round((t2 - t1) * 1000, 2)
-    
+
     # 3. Diagnostic Phase Sub-timing
     diag_res = await asyncio.to_thread(_mock_diagnostic_batch, chunks)
     t3 = time.perf_counter()
     stages['diagnostic_ms'] = round((t3 - t2) * 1000, 2)
     stages['diagnostic_breakdown'] = diag_res
-    
+
     stages['total_ms'] = round((t3 - t0) * 1000, 2)
     return stages
 
@@ -313,30 +319,30 @@ async def benchmark_async_pipeline(request: BenchmarkRequest):
     Includes stage-wise breakdowns, concurrency stress testing, failure recovery, and p95 tail latencies.
     """
     retrieval_configs = [("semantic", 0.1), ("lexical", 0.08), ("cache", 0.02)]
-    
+
     concurrency_level = request.concurrency_level or 10
     batch_size = request.batch_size or 8
     simulate_faults = request.simulate_faults or False
-    
+
     # Launch concurrent queries mapping to high system load
     tasks = [_process_single_query(retrieval_configs, batch_size, simulate_faults) for _ in range(concurrency_level)]
-    
+
     start_total = time.perf_counter()
     results = await asyncio.gather(*tasks)
     total_time_ms = (time.perf_counter() - start_total) * 1000
-    
+
     totals = sorted([r['total_ms'] for r in results])
     retrievals = sorted([r['retrieval_ms'] for r in results])
     reranks = sorted([r['rerank_ms'] for r in results])
     diagnostics = sorted([r['diagnostic_ms'] for r in results])
-    
+
     def get_p(data, p):
         idx = int((p / 100) * (len(data) - 1))
         return data[idx]
 
     # Grab the detailed breakdown from the first result as a sample
     sample_diagnostic = results[0].get('diagnostic_breakdown', {})
-    
+
     return {
         "concurrency_level": concurrency_level,
         "batch_size": batch_size,
