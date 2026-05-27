@@ -6,6 +6,7 @@ from backend.app import app
 from backend import chunk_simulator
 from backend.chunk_simulator import simulate_rag_pipeline
 from backend.model_config import SUPPORTED_MODELS
+from backend.tokenizer_engine import get_tokens
 
 client = TestClient(app)
 
@@ -14,6 +15,19 @@ TEST_TEXT = (
     "utilizes advanced neural networks for agricultural intelligence."
 )
 LONG_TEXT = " ".join([TEST_TEXT] * 120)
+MIXED_CORPUS = (
+    "Multi-query retrieval noise happens when rewrites pull unrelated chunks and increase false positives. "
+    "Retrieval overlap measures how often different rewrites fetch the same chunks. "
+    "Semantic drift occurs when embeddings match loosely related text instead of the target concept. "
+    "Cross-encoder reranking can reduce noise but adds latency. "
+    "BM25 scoring emphasizes lexical overlap and often helps with precise keywords. "
+    "Transformer attention can ignore middle context in long sequences. "
+    "RLHF aligns responses but does not fix retrieval failures. "
+    "Hallucination papers warn about confident but incorrect generation. "
+    "Agentic memory focuses on tool usage history rather than retrieval relevance. "
+    "Embeddings compress semantics but can blur rare keywords. "
+    "Vector quantization reduces memory but can distort similarity.
+")
 
 
 def test_api_health():
@@ -381,6 +395,31 @@ def test_simulate_rag_pipeline_adds_chunk_traceability(monkeypatch):
     assert "reranker_impact" in result
     assert set(result["reranker_impact"].keys()) == {"before", "after"}
     assert set(result["reranker_impact"]["before"].keys()) == {"retrieval_quality", "usage_quality", "gap"}
+
+
+def test_simulate_rag_pipeline_reports_query_diversity_metrics():
+    token_ids = get_tokens(MIXED_CORPUS, SUPPORTED_MODELS["gpt-4o"]["tokenizer"])
+
+    result = simulate_rag_pipeline(
+        token_ids=token_ids,
+        chunk_size=40,
+        query="Why does retrieval overlap happen in multi-query systems?",
+        overlap=5,
+        tokenizer_name=SUPPORTED_MODELS["gpt-4o"]["tokenizer"],
+        top_k=4,
+        final_k=4,
+        retrieval_strategy="relevance_sorted",
+        context_window=SUPPORTED_MODELS["gpt-4o"]["context_window"],
+        original_text=MIXED_CORPUS,
+        query_transformer="multi_query",
+        query_variants_max=6,
+    )
+
+    assert isinstance(result.get("variant_retrievals"), list)
+    assert result["variant_retrievals"]
+    assert result["total_retrieved_chunks"] >= result["unique_retrieved_chunks"]
+    assert 0.0 <= result["retrieval_diversity"] <= 1.0
+    assert 0.0 <= result["retrieval_overlap"] <= 1.0
 
 
 def test_simulate_rag_pipeline_flags_used_but_low_relevance_chunk_as_position_bias(monkeypatch):
