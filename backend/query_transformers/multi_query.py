@@ -48,11 +48,22 @@ class MultiQueryTransformer(QueryTransformer):
         trimmed = normalized.rstrip(" ?")
         keyword_phrase = _keywords(normalized)
 
-        variants = [
-            QueryVariant(text=normalized, source="multi_query"),
-            QueryVariant(text=f"explain {trimmed}", source="multi_query"),
-            QueryVariant(text=f"definition of {trimmed}", source="multi_query"),
+        variants = [QueryVariant(text=normalized, source="multi_query")]
+
+        angle_templates = [
+            f"explain {trimmed}",
+            f"definition of {trimmed}",
+            f"what causes {trimmed}",
+            f"why does {trimmed} happen",
+            f"how does attention bias affect {trimmed}",
+            f"positional bias in long context: {trimmed}",
+            f"long context failure modes for {trimmed}",
+            f"retrieval noise impact on {trimmed}",
+            f"how do transformers handle long context for {trimmed}",
+            f"context ordering effects on {trimmed}",
         ]
+
+        variants.extend(QueryVariant(text=text, source="multi_query") for text in angle_templates)
 
         if not normalized.endswith("?"):
             variants.append(QueryVariant(text=f"what is {trimmed}?", source="multi_query"))
