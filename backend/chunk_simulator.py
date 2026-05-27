@@ -205,6 +205,11 @@ def simulate_rag_pipeline(
 
     # 2. Initial Retrieval Scoring
     retrieval_mode = "hybrid"
+    variant_retrievals = []
+    total_retrieved_chunks = 0
+    unique_retrieved_chunks = 0
+    retrieval_diversity = 0.0
+    retrieval_overlap = 0.0
     if total_chunks_created > 0:
         query = query or original_text or ""
         variants = transform_query(query, strategy=query_transformer, max_variants=query_variants_max)
@@ -212,11 +217,12 @@ def simulate_rag_pipeline(
         query_terms_list = [_normalized_words(text) for text in query_texts]
         query_embedding = _encode_texts(query_texts) if query_texts else None
         chunk_texts = [chunk["decoded_text"] for chunk in all_chunks]
+        chunk_terms_list = [_normalized_words(text) for text in chunk_texts]
         chunk_embeddings = _encode_texts(chunk_texts) if query_embedding is not None else None
 
         if any(query_terms_list) or query_embedding is not None:
             for i, chunk in enumerate(all_chunks):
-                chunk_terms = _normalized_words(chunk["decoded_text"])
+                chunk_terms = chunk_terms_list[i]
                 keyword_scores = [
                     len(query_terms & chunk_terms) / max(1, len(query_terms)) if query_terms else 0.0
                     for query_terms in query_terms_list
@@ -235,10 +241,44 @@ def simulate_rag_pipeline(
                     chunk["similarity_score"] = round((0.5 * embedding_score) + (0.5 * keyword_score), 3)
                 else:
                     chunk["similarity_score"] = round(keyword_score, 3)
+
+            for variant_index, variant_text in enumerate(query_texts):
+                variant_terms = query_terms_list[variant_index] if variant_index < len(query_terms_list) else set()
+                variant_scores = []
+                for i, chunk in enumerate(all_chunks):
+                    chunk_terms = chunk_terms_list[i]
+                    keyword_score = len(variant_terms & chunk_terms) / max(1, len(variant_terms)) if variant_terms else 0.0
+                    if query_embedding is not None and chunk_embeddings is not None:
+                        embedding_score = float(chunk_embeddings[i] @ query_embedding[variant_index])
+                        score = 0.5 * embedding_score + 0.5 * keyword_score
+                    else:
+                        score = keyword_score
+                    variant_scores.append({
+                        "chunk_index": chunk.get("chunk_index"),
+                        "score": round(score, 4),
+                    })
+
+                top_chunks = sorted(variant_scores, key=lambda item: item["score"], reverse=True)[:top_k]
+                variant_retrievals.append({
+                    "query": variant_text,
+                    "top_chunks": top_chunks,
+                })
+
+            total_retrieved_chunks = sum(len(entry["top_chunks"]) for entry in variant_retrievals)
+            unique_chunk_ids = {
+                item["chunk_index"]
+                for entry in variant_retrievals
+                for item in entry["top_chunks"]
+                if item["chunk_index"] is not None
+            }
+            unique_retrieved_chunks = len(unique_chunk_ids)
+            if total_retrieved_chunks:
+                retrieval_diversity = round(unique_retrieved_chunks / total_retrieved_chunks, 4)
+                retrieval_overlap = round(1.0 - retrieval_diversity, 4)
         elif original_text:
             orig_terms = _normalized_words(original_text)
             for chunk in all_chunks:
-                chunk_terms = _normalized_words(chunk["decoded_text"])
+                chunk_terms = chunk_terms_list[chunk.get("chunk_index", 1) - 1]
                 chunk["keyword_score"] = round(len(orig_terms & chunk_terms) / max(1, len(orig_terms)), 3)
                 chunk["embedding_score"] = None
                 chunk["similarity_score"] = chunk["keyword_score"]
@@ -410,6 +450,11 @@ def simulate_rag_pipeline(
             "retrieval_mode": retrieval_mode,
             "query_strategy": query_transformer,
             "query_variants": [variant.text for variant in variants] if total_chunks_created > 0 else [],
+            "variant_retrievals": variant_retrievals,
+            "total_retrieved_chunks": total_retrieved_chunks,
+            "unique_retrieved_chunks": unique_retrieved_chunks,
+            "retrieval_diversity": retrieval_diversity,
+            "retrieval_overlap": retrieval_overlap,
             "reranked": reranked,
             "rerank_scores": rerank_scores,
             "retrieval_analysis": retrieval_analysis,
@@ -496,6 +541,11 @@ def simulate_rag_pipeline(
                 "retrieval_mode": retrieval_mode,
                 "query_strategy": query_transformer,
                 "query_variants": [variant.text for variant in variants] if total_chunks_created > 0 else [],
+                "variant_retrievals": variant_retrievals,
+                "total_retrieved_chunks": total_retrieved_chunks,
+                "unique_retrieved_chunks": unique_retrieved_chunks,
+                "retrieval_diversity": retrieval_diversity,
+                "retrieval_overlap": retrieval_overlap,
                 "reranked": reranked,
                 "rerank_scores": rerank_scores,
                 "retrieval_analysis": retrieval_analysis,
@@ -532,6 +582,11 @@ def simulate_rag_pipeline(
         "retrieval_mode": retrieval_mode,
         "query_strategy": query_transformer,
         "query_variants": [variant.text for variant in variants] if total_chunks_created > 0 else [],
+        "variant_retrievals": variant_retrievals,
+        "total_retrieved_chunks": total_retrieved_chunks,
+        "unique_retrieved_chunks": unique_retrieved_chunks,
+        "retrieval_diversity": retrieval_diversity,
+        "retrieval_overlap": retrieval_overlap,
         "reranked": reranked,
         "rerank_scores": rerank_scores,
         "retrieval_analysis": retrieval_analysis,

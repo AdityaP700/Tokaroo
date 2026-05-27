@@ -121,6 +121,11 @@ class RagChunkResponse(BaseModel):
     retrieval_mode: Optional[str] = None
     query_strategy: Optional[str] = None
     query_variants: Optional[List[str]] = None
+    variant_retrievals: Optional[List[Dict[str, Any]]] = None
+    total_retrieved_chunks: Optional[int] = None
+    unique_retrieved_chunks: Optional[int] = None
+    retrieval_diversity: Optional[float] = None
+    retrieval_overlap: Optional[float] = None
     reranked: Optional[bool] = None
     rerank_scores: Optional[List[float]] = None
     retrieval_analysis: Optional[Dict[str, float]] = None
