@@ -23,6 +23,18 @@ SUPPORTED_MODELS = {
         "output_price_per_m": 2.00,          # Placeholder; update with current pricing
         "tokenizer": "cl100k_base"           # Approximate; Google uses own enc, but cl100k works reasonably for MVP
     },
+    "gemini-2.5-pro": {
+        "context_window": 1_000_000,         # 1M input tokens per Gemini 2.5 Pro model listing
+        "input_price_per_m": 2.00,           # Placeholder; update with current pricing
+        "output_price_per_m": 12.00,         # Placeholder; update with current pricing
+        "tokenizer": "cl100k_base"           # Approximate; Google uses own enc, but cl100k works reasonably for MVP
+    },
+    "gemini-2.0-flash": {
+        "context_window": 1_000_000,         # 1M input tokens per Gemini 2.0 Flash model listing
+        "input_price_per_m": 0.35,           # Placeholder; update with current pricing
+        "output_price_per_m": 1.05,          # Placeholder; update with current pricing
+        "tokenizer": "cl100k_base"           # Approximate; Google uses own enc, but cl100k works reasonably for MVP
+    },
     "llama-3-8b-instruct": {
         "context_window": 8_192,
         "input_price_per_m": 0.20,  # Typical open-source API pricing

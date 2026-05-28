@@ -29,9 +29,20 @@ class HyDETransformer(QueryTransformer):
             raise RuntimeError("GEMINI_API_KEY is not set for HyDE transformer.")
 
         prompt = (
-            "Write a concise technical explanation answering:\n\n"
+            "You are generating a technical passage for retrieval augmentation.\n\n"
+            "Task:\n"
+            "Write a complete standalone technical paragraph answering the question below.\n\n"
+            "Requirements:\n"
+            "- Write at least 80 words.\n"
+            "- Use complete sentences.\n"
+            "- Include retrieval, embeddings, semantic similarity, and ranking terminology where relevant.\n"
+            "- Explain mechanisms and causes.\n"
+            "- Do not stop early.\n"
+            "- Do not write bullet points.\n"
+            "- Do not write sentence fragments.\n\n"
+            "Question:\n"
             f"{normalized}"
-            "\n\nTechnical explanation:"
+            "\n\nTechnical Paragraph:\n"
         )
 
         payload = {
@@ -45,6 +56,7 @@ class HyDETransformer(QueryTransformer):
             "generationConfig": {
                 "maxOutputTokens": self.max_output_tokens,
                 "temperature": 0.4,
+                "candidateCount": 1,
             },
         }
 
@@ -54,7 +66,9 @@ class HyDETransformer(QueryTransformer):
             response.raise_for_status()
             data = response.json()
 
+        _log_finish_reason(data)
         pseudo_doc = _extract_text(data)
+        print(f"[HyDE] Raw text length: {len(pseudo_doc.split())} words")
         variants = [QueryVariant(text=pseudo_doc, source="hyde")]
         return unique_variants(variants, max_variants)
 
@@ -102,6 +116,18 @@ def _extract_text(data: dict) -> str:
         return text.strip()
 
     raise RuntimeError("HyDE transformer did not receive a usable response.")
+
+
+def _log_finish_reason(data: dict) -> None:
+    candidates = data.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        return
+    candidate = candidates[0] if isinstance(candidates[0], dict) else None
+    if not candidate:
+        return
+    finish_reason = candidate.get("finishReason")
+    if finish_reason:
+        print(f"[HyDE] Gemini finishReason: {finish_reason}")
 
 
 def _normalize_gemini_model(model: str) -> str:
