@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
+from dotenv import load_dotenv
 from schemas import SimulateRequest, SimulateResponse, CostEstimate,CompareRequest, CompareResponse,ModelComparisonResult,RagChunkRequest, RagChunkResponse, BenchmarkRequest
 from model_config import SUPPORTED_MODELS
 from tokenizer_engine import get_tokens
@@ -13,6 +15,16 @@ from chunk_simulator import (
     set_sentence_embedding_model,
     set_cross_encoder_reranker,
 )
+def _load_env() -> None:
+    base_dir = Path(__file__).resolve().parent
+    for name in (".env.local", ".env"):
+        env_path = base_dir / name
+        if env_path.exists():
+            load_dotenv(env_path)
+
+
+_load_env()
+
 app = FastAPI(title="Tokaroo API")
 
 app.add_middleware(
@@ -217,6 +229,9 @@ def simulate_rag(request: RagChunkRequest):
         retrieval_mode=rag_data.get("retrieval_mode"),
         query_strategy=rag_data.get("query_strategy"),
         query_variants=rag_data.get("query_variants"),
+        hyde_document=rag_data.get("hyde_document"),
+        hyde_length_tokens=rag_data.get("hyde_length_tokens"),
+        hyde_generated_terms=rag_data.get("hyde_generated_terms"),
         variant_retrievals=rag_data.get("variant_retrievals"),
         total_retrieved_chunks=rag_data.get("total_retrieved_chunks"),
         unique_retrieved_chunks=rag_data.get("unique_retrieved_chunks"),

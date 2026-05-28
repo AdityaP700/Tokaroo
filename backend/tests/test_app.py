@@ -27,7 +27,7 @@ MIXED_CORPUS = (
     "Agentic memory focuses on tool usage history rather than retrieval relevance. "
     "Embeddings compress semantics but can blur rare keywords. "
     "Vector quantization reduces memory but can distort similarity."
-")
+)
 EXTREME_DISTRACTOR_CORPUS = (
     "Multi-query retrieval overlap and semantic drift are common in noisy pipelines. "
     "Reranking helps mitigate retrieval noise in long-context systems. "

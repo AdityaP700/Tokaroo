@@ -1,7 +1,7 @@
 from functools import lru_cache
 import copy
 import re
-from tokenizer_engine import decode_tokens
+from tokenizer_engine import decode_tokens, get_tokens
 from context_simulator import calculate_attention_weights
 from query_transformers import transform_query
 
@@ -59,6 +59,20 @@ def get_cross_encoder_reranker():
 
 def _normalized_words(text: str) -> set[str]:
     return {match.group(0).lower() for match in WORD_PATTERN.finditer(text)}
+
+
+def _ordered_terms(text: str, limit: int = 12) -> list[str]:
+    terms = []
+    seen = set()
+    for match in WORD_PATTERN.finditer(text):
+        term = match.group(0).lower()
+        if term in seen:
+            continue
+        seen.add(term)
+        terms.append(term)
+        if len(terms) >= limit:
+            break
+    return terms
 
 
 def _encode_texts(texts: list[str]):
@@ -210,6 +224,9 @@ def simulate_rag_pipeline(
     unique_retrieved_chunks = 0
     retrieval_diversity = 0.0
     retrieval_overlap = 0.0
+    hyde_document = None
+    hyde_length_tokens = None
+    hyde_generated_terms = None
     if total_chunks_created > 0:
         query = query or original_text or ""
         variants = transform_query(query, strategy=query_transformer, max_variants=query_variants_max)
@@ -219,6 +236,11 @@ def simulate_rag_pipeline(
         chunk_texts = [chunk["decoded_text"] for chunk in all_chunks]
         chunk_terms_list = [_normalized_words(text) for text in chunk_texts]
         chunk_embeddings = _encode_texts(chunk_texts) if query_embedding is not None else None
+
+        if query_transformer == "hyde" and variants:
+            hyde_document = variants[0].text
+            hyde_length_tokens = len(get_tokens(hyde_document, tokenizer_name))
+            hyde_generated_terms = _ordered_terms(hyde_document)
 
         if any(query_terms_list) or query_embedding is not None:
             for i, chunk in enumerate(all_chunks):
@@ -450,6 +472,9 @@ def simulate_rag_pipeline(
             "retrieval_mode": retrieval_mode,
             "query_strategy": query_transformer,
             "query_variants": [variant.text for variant in variants] if total_chunks_created > 0 else [],
+            "hyde_document": hyde_document,
+            "hyde_length_tokens": hyde_length_tokens,
+            "hyde_generated_terms": hyde_generated_terms,
             "variant_retrievals": variant_retrievals,
             "total_retrieved_chunks": total_retrieved_chunks,
             "unique_retrieved_chunks": unique_retrieved_chunks,
@@ -541,6 +566,9 @@ def simulate_rag_pipeline(
                 "retrieval_mode": retrieval_mode,
                 "query_strategy": query_transformer,
                 "query_variants": [variant.text for variant in variants] if total_chunks_created > 0 else [],
+                "hyde_document": hyde_document,
+                "hyde_length_tokens": hyde_length_tokens,
+                "hyde_generated_terms": hyde_generated_terms,
                 "variant_retrievals": variant_retrievals,
                 "total_retrieved_chunks": total_retrieved_chunks,
                 "unique_retrieved_chunks": unique_retrieved_chunks,
@@ -582,6 +610,9 @@ def simulate_rag_pipeline(
         "retrieval_mode": retrieval_mode,
         "query_strategy": query_transformer,
         "query_variants": [variant.text for variant in variants] if total_chunks_created > 0 else [],
+        "hyde_document": hyde_document,
+        "hyde_length_tokens": hyde_length_tokens,
+        "hyde_generated_terms": hyde_generated_terms,
         "variant_retrievals": variant_retrievals,
         "total_retrieved_chunks": total_retrieved_chunks,
         "unique_retrieved_chunks": unique_retrieved_chunks,

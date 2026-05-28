@@ -4,10 +4,12 @@ from typing import List
 
 from .base import QueryTransformer, QueryVariant
 from .baseline import BaselineTransformer
+from .hyde import HyDETransformer
 from .multi_query import MultiQueryTransformer
 
 _TRANSFORMERS = {
     "baseline": BaselineTransformer(),
+    "hyde": HyDETransformer(),
     "multi_query": MultiQueryTransformer(),
 }
 
