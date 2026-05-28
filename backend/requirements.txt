@@ -5,6 +5,7 @@ tiktoken>=0.7
 transformers>=4.44
 sentencepiece>=0.2
 httpx>=0.27
+google-generativeai>=0.7
 python-dotenv>=1.0
 pytest>=8.0
 sentence-transformers>=3.0

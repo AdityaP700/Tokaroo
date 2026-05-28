@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
-from typing import List
+from typing import List, Any
 
-import httpx
+import google.generativeai as genai
 
 from .base import QueryTransformer, QueryVariant, normalize_query, unique_variants
 
@@ -22,6 +22,11 @@ class HyDETransformer(QueryTransformer):
 
     def transform(self, query: str, *, max_variants: int = 5) -> List[QueryVariant]:
         normalized = normalize_query(query)
+        static_doc = os.getenv("HYDE_STATIC_DOC")
+        if static_doc:
+            pseudo_doc = static_doc.strip()
+            variants = [QueryVariant(text=pseudo_doc, source="hyde_static")]
+            return unique_variants(variants, max_variants)
         if not self.api_key:
             # Ensure late-loaded env vars (e.g., .env.local) are picked up.
             self.api_key = os.getenv("GEMINI_API_KEY")
@@ -45,87 +50,52 @@ class HyDETransformer(QueryTransformer):
             "\n\nTechnical Paragraph:\n"
         )
 
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt},
-                    ]
-                }
-            ],
-            "generationConfig": {
-                "maxOutputTokens": self.max_output_tokens,
-                "temperature": 0.4,
-                "candidateCount": 1,
-            },
-        }
+        genai.configure(api_key=self.api_key)
+        model = genai.GenerativeModel(self.model)
+        generation_config = genai.types.GenerationConfig(
+            max_output_tokens=self.max_output_tokens,
+            temperature=0.4,
+            candidate_count=1,
+        )
+        response = model.generate_content(prompt, generation_config=generation_config)
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
-        with httpx.Client(timeout=20.0) as client:
-            response = client.post(url, params={"key": self.api_key}, json=payload)
-            response.raise_for_status()
-            data = response.json()
-
-        _log_finish_reason(data)
-        pseudo_doc = _extract_text(data)
+        _log_finish_reason(response)
+        pseudo_doc = _extract_text(response)
         print(f"[HyDE] Raw text length: {len(pseudo_doc.split())} words")
         variants = [QueryVariant(text=pseudo_doc, source="hyde")]
         return unique_variants(variants, max_variants)
 
 
-def _extract_text(data: dict) -> str:
-    candidates = data.get("candidates")
+def _extract_text(response: Any) -> str:
+    text = getattr(response, "text", None)
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+
+    candidates = getattr(response, "candidates", None)
     if isinstance(candidates, list):
         parts = []
         for candidate in candidates:
-            content = candidate.get("content") if isinstance(candidate, dict) else None
-            if not isinstance(content, dict):
+            content = getattr(candidate, "content", None)
+            if content is None:
                 continue
-            for part in content.get("parts", []):
-                if isinstance(part, dict):
-                    text = part.get("text")
-                    if text:
-                        parts.append(text)
+            content_parts = getattr(content, "parts", None)
+            if not isinstance(content_parts, list):
+                continue
+            for part in content_parts:
+                part_text = getattr(part, "text", None)
+                if part_text:
+                    parts.append(part_text)
         if parts:
             return "\n".join(parts).strip()
-
-    output = data.get("output")
-    if isinstance(output, list):
-        parts = []
-        for item in output:
-            content = item.get("content") if isinstance(item, dict) else None
-            if not isinstance(content, list):
-                continue
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "output_text":
-                    text = block.get("text")
-                    if text:
-                        parts.append(text)
-        if parts:
-            return "\n".join(parts).strip()
-
-    choices = data.get("choices")
-    if isinstance(choices, list) and choices:
-        message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
-        content = message.get("content")
-        if isinstance(content, str) and content.strip():
-            return content.strip()
-
-    text = data.get("text")
-    if isinstance(text, str) and text.strip():
-        return text.strip()
 
     raise RuntimeError("HyDE transformer did not receive a usable response.")
 
 
-def _log_finish_reason(data: dict) -> None:
-    candidates = data.get("candidates")
+def _log_finish_reason(response: Any) -> None:
+    candidates = getattr(response, "candidates", None)
     if not isinstance(candidates, list) or not candidates:
         return
-    candidate = candidates[0] if isinstance(candidates[0], dict) else None
-    if not candidate:
-        return
-    finish_reason = candidate.get("finishReason")
+    finish_reason = getattr(candidates[0], "finish_reason", None)
     if finish_reason:
         print(f"[HyDE] Gemini finishReason: {finish_reason}")
 
