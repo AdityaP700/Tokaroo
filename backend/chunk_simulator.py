@@ -132,6 +132,53 @@ def compute_attention_waste(chunks: list[dict], threshold: float = 0.2) -> float
     return round(waste_ratio, 3)
 
 
+def compute_retrieval_metrics(all_chunks: list[dict], ranked_chunks: list[dict], k: int) -> dict:
+    if not all_chunks or not ranked_chunks or k <= 0:
+        return {"recall_at_k": 0.0, "mrr": 0.0, "hit_rate": 0.0, "ndcg": 0.0}
+
+    relevance_scores = [c.get("relevance_score", c.get("similarity_score", 0.0)) for c in all_chunks]
+    avg_relevance = sum(relevance_scores) / len(relevance_scores) if relevance_scores else 0.0
+    relevant_threshold = max(0.3, avg_relevance * 0.8)
+    relevant_ids = {
+        c.get("chunk_index")
+        for c in all_chunks
+        if c.get("relevance_score", c.get("similarity_score", 0.0)) >= relevant_threshold
+    }
+    total_relevant = len(relevant_ids)
+
+    top_k = ranked_chunks[: max(1, min(k, len(ranked_chunks)))]
+    hits = [c for c in top_k if c.get("chunk_index") in relevant_ids]
+    recall_at_k = len(hits) / total_relevant if total_relevant else 0.0
+    hit_rate = 1.0 if hits else 0.0
+
+    mrr = 0.0
+    for rank, chunk in enumerate(top_k, start=1):
+        if chunk.get("chunk_index") in relevant_ids:
+            mrr = 1.0 / rank
+            break
+
+    import math
+
+    def _dcg(values: list[float]) -> float:
+        return sum((rel / (math.log2(idx + 2))) for idx, rel in enumerate(values))
+
+    gains = [
+        c.get("relevance_score", c.get("similarity_score", 0.0))
+        for c in top_k
+    ]
+    dcg = _dcg(gains)
+    ideal_gains = sorted(relevance_scores, reverse=True)[: len(top_k)]
+    idcg = _dcg(ideal_gains)
+    ndcg = (dcg / idcg) if idcg > 0 else 0.0
+
+    return {
+        "recall_at_k": round(recall_at_k, 4),
+        "mrr": round(mrr, 4),
+        "hit_rate": round(hit_rate, 4),
+        "ndcg": round(ndcg, 4),
+    }
+
+
 def rerank_chunks(query: str, chunks: list[dict]) -> list[dict]:
     reranker = get_cross_encoder_reranker()
 
@@ -321,6 +368,7 @@ def simulate_rag_pipeline(
     retrieved_chunks = all_chunks[:top_k]
     rerank_query = query or original_text or ""
     reranked_chunks = rerank_chunks(rerank_query, retrieved_chunks)
+    retrieval_metrics = compute_retrieval_metrics(all_chunks, reranked_chunks, top_k)
 
     # -------------------------------------------------------------
     # CONTEXT FILTERING (PRE-PROMPT)
@@ -480,6 +528,7 @@ def simulate_rag_pipeline(
             "unique_retrieved_chunks": unique_retrieved_chunks,
             "retrieval_diversity": retrieval_diversity,
             "retrieval_overlap": retrieval_overlap,
+            "retrieval_metrics": retrieval_metrics,
             "reranked": reranked,
             "rerank_scores": rerank_scores,
             "retrieval_analysis": retrieval_analysis,
@@ -574,6 +623,7 @@ def simulate_rag_pipeline(
                 "unique_retrieved_chunks": unique_retrieved_chunks,
                 "retrieval_diversity": retrieval_diversity,
                 "retrieval_overlap": retrieval_overlap,
+                "retrieval_metrics": retrieval_metrics,
                 "reranked": reranked,
                 "rerank_scores": rerank_scores,
                 "retrieval_analysis": retrieval_analysis,
@@ -618,6 +668,7 @@ def simulate_rag_pipeline(
         "unique_retrieved_chunks": unique_retrieved_chunks,
         "retrieval_diversity": retrieval_diversity,
         "retrieval_overlap": retrieval_overlap,
+        "retrieval_metrics": retrieval_metrics,
         "reranked": reranked,
         "rerank_scores": rerank_scores,
         "retrieval_analysis": retrieval_analysis,

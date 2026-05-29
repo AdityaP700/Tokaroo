@@ -413,6 +413,8 @@ def test_simulate_rag_pipeline_adds_chunk_traceability(monkeypatch):
     assert "reranker_impact" in result
     assert set(result["reranker_impact"].keys()) == {"before", "after"}
     assert set(result["reranker_impact"]["before"].keys()) == {"retrieval_quality", "usage_quality", "gap"}
+    assert "retrieval_metrics" in result
+    assert set(result["retrieval_metrics"].keys()) == {"recall_at_k", "mrr", "hit_rate", "ndcg"}
 
 
 def test_simulate_rag_pipeline_reports_query_diversity_metrics():

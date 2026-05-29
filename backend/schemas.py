@@ -129,6 +129,7 @@ class RagChunkResponse(BaseModel):
     unique_retrieved_chunks: Optional[int] = None
     retrieval_diversity: Optional[float] = None
     retrieval_overlap: Optional[float] = None
+    retrieval_metrics: Optional[Dict[str, float]] = None
     reranked: Optional[bool] = None
     rerank_scores: Optional[List[float]] = None
     retrieval_analysis: Optional[Dict[str, float]] = None

@@ -237,6 +237,7 @@ def simulate_rag(request: RagChunkRequest):
         unique_retrieved_chunks=rag_data.get("unique_retrieved_chunks"),
         retrieval_diversity=rag_data.get("retrieval_diversity"),
         retrieval_overlap=rag_data.get("retrieval_overlap"),
+        retrieval_metrics=rag_data.get("retrieval_metrics"),
         reranked=rag_data.get("reranked"),
         rerank_scores=rag_data.get("rerank_scores"),
         retrieval_analysis=rag_data.get("retrieval_analysis"),
