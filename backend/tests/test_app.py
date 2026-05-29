@@ -417,6 +417,39 @@ def test_simulate_rag_pipeline_adds_chunk_traceability(monkeypatch):
     assert set(result["retrieval_metrics"].keys()) == {"recall_at_k", "mrr", "hit_rate", "ndcg"}
 
 
+def test_simulate_rag_pipeline_reports_gold_metrics(monkeypatch):
+    def fake_decode_tokens(tokens, tokenizer_name):
+        if tokens == [1]:
+            return "cats"
+        if tokens == [2]:
+            return "filler"
+        if tokens == [3]:
+            return "mid filler"
+        if tokens == [4]:
+            return "cats again"
+        return " ".join(str(token) for token in tokens)
+
+    monkeypatch.setattr(chunk_simulator, "decode_tokens", fake_decode_tokens)
+
+    result = simulate_rag_pipeline(
+        token_ids=[1, 2, 3, 4],
+        chunk_size=1,
+        query="cats",
+        overlap=0,
+        tokenizer_name="cl100k_base",
+        top_k=1,
+        final_k=1,
+        retrieval_strategy="relevance_sorted",
+        context_window=100,
+        original_text="cats filler mid filler cats again",
+        relevance_labels={4: 3},
+    )
+
+    assert "retrieval_metrics_gold" in result
+    assert set(result["retrieval_metrics_gold"].keys()) == {"recall_at_k", "mrr", "hit_rate", "ndcg"}
+    assert result["retrieval_metrics"]["recall_at_k"] != result["retrieval_metrics_gold"]["recall_at_k"]
+
+
 def test_simulate_rag_pipeline_reports_query_diversity_metrics():
     token_ids = get_tokens(MIXED_CORPUS, SUPPORTED_MODELS["gpt-4o"]["tokenizer"])
 

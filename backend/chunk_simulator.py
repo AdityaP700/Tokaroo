@@ -1,6 +1,7 @@
 from functools import lru_cache
 import copy
 import re
+import math
 from tokenizer_engine import decode_tokens, get_tokens
 from context_simulator import calculate_attention_weights
 from query_transformers import transform_query
@@ -157,7 +158,7 @@ def compute_retrieval_metrics(all_chunks: list[dict], ranked_chunks: list[dict],
             mrr = 1.0 / rank
             break
 
-    import math
+
 
     def _dcg(values: list[float]) -> float:
         return sum((rel / (math.log2(idx + 2))) for idx, rel in enumerate(values))
@@ -169,6 +170,38 @@ def compute_retrieval_metrics(all_chunks: list[dict], ranked_chunks: list[dict],
     dcg = _dcg(gains)
     ideal_gains = sorted(relevance_scores, reverse=True)[: len(top_k)]
     idcg = _dcg(ideal_gains)
+    ndcg = (dcg / idcg) if idcg > 0 else 0.0
+
+    return {
+        "recall_at_k": round(recall_at_k, 4),
+        "mrr": round(mrr, 4),
+        "hit_rate": round(hit_rate, 4),
+        "ndcg": round(ndcg, 4),
+    }
+
+
+def compute_retrieval_metrics_gold(ranked_chunks: list[dict], labels: dict[int, int], k: int) -> dict:
+    if not labels or not ranked_chunks or k <= 0:
+        return {"recall_at_k": 0.0, "mrr": 0.0, "hit_rate": 0.0, "ndcg": 0.0}
+
+    relevant_ids = {chunk_id for chunk_id, grade in labels.items() if grade > 0}
+    total_relevant = len(relevant_ids)
+    top_k = ranked_chunks[: max(1, min(k, len(ranked_chunks)))]
+
+    hits = [c for c in top_k if c.get("chunk_index") in relevant_ids]
+    recall_at_k = len(hits) / total_relevant if total_relevant else 0.0
+    hit_rate = 1.0 if hits else 0.0
+
+    mrr = 0.0
+    for rank, chunk in enumerate(top_k, start=1):
+        if chunk.get("chunk_index") in relevant_ids:
+            mrr = 1.0 / rank
+            break
+
+    gains = [labels.get(c.get("chunk_index"), 0) for c in top_k]
+    dcg = sum((rel / (math.log2(idx + 2))) for idx, rel in enumerate(gains))
+    ideal_gains = sorted(labels.values(), reverse=True)[: len(top_k)]
+    idcg = sum((rel / (math.log2(idx + 2))) for idx, rel in enumerate(ideal_gains))
     ndcg = (dcg / idcg) if idcg > 0 else 0.0
 
     return {
@@ -228,6 +261,7 @@ def simulate_rag_pipeline(
     original_text: str | None = None,
     query_transformer: str | None = "baseline",
     query_variants_max: int = 5,
+    relevance_labels: dict[int, int] | None = None,
 ) -> dict:
     if overlap > chunk_size * 0.5:
         overlap = int(chunk_size * 0.2)
@@ -369,6 +403,10 @@ def simulate_rag_pipeline(
     rerank_query = query or original_text or ""
     reranked_chunks = rerank_chunks(rerank_query, retrieved_chunks)
     retrieval_metrics = compute_retrieval_metrics(all_chunks, reranked_chunks, top_k)
+    retrieval_metrics_gold = None
+    if relevance_labels:
+        label_map = {int(k): int(v) for k, v in relevance_labels.items()}
+        retrieval_metrics_gold = compute_retrieval_metrics_gold(reranked_chunks, label_map, top_k)
 
     # -------------------------------------------------------------
     # CONTEXT FILTERING (PRE-PROMPT)
@@ -529,6 +567,7 @@ def simulate_rag_pipeline(
             "retrieval_diversity": retrieval_diversity,
             "retrieval_overlap": retrieval_overlap,
             "retrieval_metrics": retrieval_metrics,
+            "retrieval_metrics_gold": retrieval_metrics_gold,
             "reranked": reranked,
             "rerank_scores": rerank_scores,
             "retrieval_analysis": retrieval_analysis,
@@ -624,6 +663,7 @@ def simulate_rag_pipeline(
                 "retrieval_diversity": retrieval_diversity,
                 "retrieval_overlap": retrieval_overlap,
                 "retrieval_metrics": retrieval_metrics,
+                "retrieval_metrics_gold": retrieval_metrics_gold,
                 "reranked": reranked,
                 "rerank_scores": rerank_scores,
                 "retrieval_analysis": retrieval_analysis,
@@ -669,6 +709,7 @@ def simulate_rag_pipeline(
         "retrieval_diversity": retrieval_diversity,
         "retrieval_overlap": retrieval_overlap,
         "retrieval_metrics": retrieval_metrics,
+        "retrieval_metrics_gold": retrieval_metrics_gold,
         "reranked": reranked,
         "rerank_scores": rerank_scores,
         "retrieval_analysis": retrieval_analysis,

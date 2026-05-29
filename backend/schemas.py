@@ -59,7 +59,10 @@ class RagChunkRequest(BaseModel):
     query_transformer: Optional[str] = Field(default="baseline", description="'baseline', 'multi_query', or 'hyde'")
     query_variants_max: Optional[int] = Field(default=5, ge=1, le=10, description="Max rewritten queries to emit")
     auto_optimize: Optional[bool] = Field(default=True, description="Enable 2-pass adaptive optimization")
-
+    relevance_labels: Optional[Dict[int, int]] = Field(
+        default=None,
+        description="Gold labels by chunk_index. 0 = irrelevant, 1-3 = graded relevance"
+    )
 class BenchmarkRequest(BaseModel):
     queries: List[str]
     text: str
@@ -130,6 +133,7 @@ class RagChunkResponse(BaseModel):
     retrieval_diversity: Optional[float] = None
     retrieval_overlap: Optional[float] = None
     retrieval_metrics: Optional[Dict[str, float]] = None
+    retrieval_metrics_gold: Optional[Dict[str, float]] = None
     reranked: Optional[bool] = None
     rerank_scores: Optional[List[float]] = None
     retrieval_analysis: Optional[Dict[str, float]] = None

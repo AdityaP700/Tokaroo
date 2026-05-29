@@ -185,6 +185,7 @@ def simulate_rag(request: RagChunkRequest):
         original_text=request.text,
         query_transformer=request.query_transformer,
         query_variants_max=request.query_variants_max,
+        relevance_labels=request.relevance_labels,
     )
 
     # ---------------------------------------------------------
@@ -238,6 +239,7 @@ def simulate_rag(request: RagChunkRequest):
         retrieval_diversity=rag_data.get("retrieval_diversity"),
         retrieval_overlap=rag_data.get("retrieval_overlap"),
         retrieval_metrics=rag_data.get("retrieval_metrics"),
+        retrieval_metrics_gold=rag_data.get("retrieval_metrics_gold"),
         reranked=rag_data.get("reranked"),
         rerank_scores=rag_data.get("rerank_scores"),
         retrieval_analysis=rag_data.get("retrieval_analysis"),
