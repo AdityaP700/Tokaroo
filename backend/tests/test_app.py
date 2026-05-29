@@ -1,4 +1,6 @@
 from fastapi.testclient import TestClient
+import json
+from pathlib import Path
 
 from backend import app as app_module
 from backend.analyzer import analyze_prompt_failure, generate_rag_diagnosis
@@ -448,6 +450,56 @@ def test_simulate_rag_pipeline_reports_gold_metrics(monkeypatch):
     assert "retrieval_metrics_gold" in result
     assert set(result["retrieval_metrics_gold"].keys()) == {"recall_at_k", "mrr", "hit_rate", "ndcg"}
     assert result["retrieval_metrics"]["recall_at_k"] != result["retrieval_metrics_gold"]["recall_at_k"]
+
+
+def test_simulate_rag_pipeline_uses_gold_fixture(monkeypatch):
+    def fake_decode_tokens(tokens, tokenizer_name):
+        if tokens == [1]:
+            return "retrieval overlap explanation"
+        if tokens == [2]:
+            return "semantic drift explanation"
+        if tokens == [3]:
+            return "dense retrieval details"
+        if tokens == [4]:
+            return "bm25 explanation"
+        if tokens == [5]:
+            return "dense retrieval vs bm25"
+        if tokens == [6]:
+            return "attention ignores middle"
+        if tokens == [7]:
+            return "reranking details"
+        if tokens == [8]:
+            return "long context middle issues"
+        if tokens == [9]:
+            return "rare keywords blur"
+        if tokens == [10]:
+            return "embeddings blur rare terms"
+        if tokens == [11]:
+            return "vector quantization similarity"
+        return "filler"
+
+    monkeypatch.setattr(chunk_simulator, "decode_tokens", fake_decode_tokens)
+
+    fixture_path = Path(__file__).resolve().parent / "fixtures" / "gold_retrieval_benchmark.json"
+    with fixture_path.open("r", encoding="utf-8") as handle:
+        benchmark = json.load(handle)
+
+    for case in benchmark:
+        result = simulate_rag_pipeline(
+            token_ids=list(range(1, 12)),
+            chunk_size=1,
+            query=case["query"],
+            overlap=0,
+            tokenizer_name="cl100k_base",
+            top_k=4,
+            final_k=4,
+            retrieval_strategy="relevance_sorted",
+            context_window=100,
+            original_text="filler",
+            relevance_labels=case["relevant_chunks"],
+        )
+
+        assert result.get("retrieval_metrics_gold") is not None
 
 
 def test_simulate_rag_pipeline_reports_query_diversity_metrics():

@@ -1,0 +1,142 @@
+[
+  {
+    "query": "Why does retrieval overlap happen?",
+    "relevant_chunks": {
+      "1": 4,
+      "2": 2
+    }
+  },
+  {
+    "query": "What causes semantic drift in retrieval systems?",
+    "relevant_chunks": {
+      "2": 4,
+      "3": 1
+    }
+  },
+  {
+    "query": "How does BM25 differ from dense retrieval?",
+    "relevant_chunks": {
+      "4": 4,
+      "5": 3
+    }
+  },
+  {
+    "query": "What is multi-query retrieval noise?",
+    "relevant_chunks": {
+      "1": 4,
+      "6": 2
+    }
+  },
+  {
+    "query": "How can reranking reduce retrieval noise?",
+    "relevant_chunks": {
+      "4": 3,
+      "7": 2
+    }
+  },
+  {
+    "query": "Why do embeddings blur rare keywords?",
+    "relevant_chunks": {
+      "9": 4,
+      "10": 2
+    }
+  },
+  {
+    "query": "What is vector quantization and how does it affect similarity?",
+    "relevant_chunks": {
+      "11": 4,
+      "10": 1
+    }
+  },
+  {
+    "query": "How does attention ignore middle context?",
+    "relevant_chunks": {
+      "6": 4,
+      "8": 1
+    }
+  },
+  {
+    "query": "What is retrieval overlap and why is it harmful?",
+    "relevant_chunks": {
+      "1": 4,
+      "2": 1
+    }
+  },
+  {
+    "query": "How does cross-encoder reranking work?",
+    "relevant_chunks": {
+      "4": 4,
+      "7": 1
+    }
+  },
+  {
+    "query": "What causes false positives in retrieval?",
+    "relevant_chunks": {
+      "1": 2,
+      "3": 2
+    }
+  },
+  {
+    "query": "How does hybrid retrieval combine lexical and semantic scores?",
+    "relevant_chunks": {
+      "4": 2,
+      "5": 2
+    }
+  },
+  {
+    "query": "Why do long-context systems lose information in the middle?",
+    "relevant_chunks": {
+      "6": 4,
+      "8": 2
+    }
+  },
+  {
+    "query": "How do embedding neighborhoods cause redundancy?",
+    "relevant_chunks": {
+      "2": 3,
+      "1": 2
+    }
+  },
+  {
+    "query": "What is retrieval diversity and why does it matter?",
+    "relevant_chunks": {
+      "1": 2,
+      "2": 1
+    }
+  },
+  {
+    "query": "How can keyword overlap improve recall?",
+    "relevant_chunks": {
+      "5": 3,
+      "4": 1
+    }
+  },
+  {
+    "query": "Why does dense retrieval sometimes miss exact terms?",
+    "relevant_chunks": {
+      "5": 2,
+      "9": 2
+    }
+  },
+  {
+    "query": "What is the role of reranking in RAG pipelines?",
+    "relevant_chunks": {
+      "4": 3,
+      "7": 2
+    }
+  },
+  {
+    "query": "How does semantic similarity drive retrieval?",
+    "relevant_chunks": {
+      "2": 2,
+      "3": 2
+    }
+  },
+  {
+    "query": "Why can retrieval quality look high even when results are wrong?",
+    "relevant_chunks": {
+      "3": 1,
+      "7": 1
+    }
+  }
+]
