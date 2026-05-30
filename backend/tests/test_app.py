@@ -74,6 +74,63 @@ HYDE_DRIFT_CORPUS = (
     "Vector databases use approximate nearest neighbor search. "
     "Black holes warp spacetime."
 )
+
+
+def _top_by_rank(chunks: list[dict], rank_key: str) -> dict | None:
+    ranked = [chunk for chunk in chunks if chunk.get(rank_key) is not None]
+    if not ranked:
+        return None
+    return min(ranked, key=lambda chunk: chunk[rank_key])
+
+
+def _case_encoder(case_name: str):
+    def _encode(texts):
+        if isinstance(texts, str):
+            texts = [texts]
+
+        vectors = []
+        for text in texts:
+            lowered = text.lower()
+            if case_name == "dense_should_win":
+                if "why does retrieval overlap happen" in lowered:
+                    vectors.append([1.0, 0.0])
+                elif "semantically similar" in lowered:
+                    vectors.append([1.0, 0.0])
+                elif "spamword" in lowered:
+                    vectors.append([0.0, 1.0])
+                else:
+                    vectors.append([0.0, 0.0])
+            elif case_name == "bm25_should_win":
+                if "what is bm25" in lowered:
+                    vectors.append([0.0, 1.0])
+                elif "bm25 scoring" in lowered:
+                    vectors.append([1.0, 0.0])
+                elif "dense retrieval uses embeddings" in lowered:
+                    vectors.append([0.0, 1.0])
+                else:
+                    vectors.append([0.0, 0.0])
+            elif case_name == "rank_disagreement":
+                if "semantic conflict test" in lowered:
+                    vectors.append([1.0, 0.0])
+                elif "semantic explanation" in lowered:
+                    vectors.append([1.0, 0.0])
+                elif "spamword" in lowered:
+                    vectors.append([0.0, 1.0])
+                else:
+                    vectors.append([0.0, 0.0])
+            elif case_name == "hyde_failure":
+                if "attention collapse" in lowered:
+                    vectors.append([1.0, 0.0])
+                elif "retrieval overlap happens" in lowered:
+                    vectors.append([0.0, 1.0])
+                else:
+                    vectors.append([0.0, 0.0])
+            else:
+                vectors.append([0.0, 0.0])
+
+        return __import__("numpy").array(vectors, dtype=float)
+
+    return _encode
 def test_api_health():
     response = client.get("/")
     assert response.status_code == 200
@@ -618,6 +675,65 @@ def test_simulate_rag_pipeline_reports_gold_metrics_for_rrf():
 
     assert result.get("retrieval_metrics_gold") is not None
     assert set(result["retrieval_metrics_gold"].keys()) == {"recall_at_k", "mrr", "hit_rate", "ndcg"}
+
+
+def test_benchmark_suite_cases(monkeypatch):
+    fixture_path = Path(__file__).resolve().parent / "fixtures" / "benchmark_suite.json"
+    with fixture_path.open("r", encoding="utf-8") as handle:
+        suite = json.load(handle)
+
+    original_transform_query = chunk_simulator.transform_query
+
+    for case in suite:
+        chunk_texts = {i + 1: text for i, text in enumerate(case["chunks"])}
+
+        def fake_decode_tokens(tokens, tokenizer_name, chunk_texts=chunk_texts):
+            if not tokens:
+                return ""
+            return chunk_texts.get(tokens[0], "")
+
+        monkeypatch.setattr(chunk_simulator, "decode_tokens", fake_decode_tokens)
+        monkeypatch.setattr(chunk_simulator, "_encode_texts", _case_encoder(case["name"]))
+
+        if case.get("query_transformer") == "hyde":
+            class Variant:
+                def __init__(self, text: str):
+                    self.text = text
+
+            def fake_transform_query(query, strategy, max_variants):
+                return [Variant(case["hyde_document"])]
+
+            monkeypatch.setattr(chunk_simulator, "transform_query", fake_transform_query)
+        else:
+            monkeypatch.setattr(chunk_simulator, "transform_query", original_transform_query)
+
+        result = simulate_rag_pipeline(
+            token_ids=list(range(1, len(case["chunks"]) + 1)),
+            chunk_size=1,
+            query=case["query"],
+            overlap=0,
+            tokenizer_name="cl100k_base",
+            top_k=case.get("top_k", len(case["chunks"])),
+            final_k=case.get("final_k", case.get("top_k", len(case["chunks"]))),
+            retrieval_strategy="rrf_fused",
+            context_window=200,
+            original_text=" ".join(case["chunks"]),
+            query_transformer=case.get("query_transformer", "baseline"),
+            query_variants_max=1,
+            relevance_labels=case.get("labels"),
+        )
+
+        debug_chunks = result.get("retrieval_debug") or []
+        dense_top = _top_by_rank(debug_chunks, "dense_rank")
+        keyword_top = _top_by_rank(debug_chunks, "keyword_rank")
+
+        assert dense_top is not None
+        assert keyword_top is not None
+        assert dense_top["chunk_index"] == case["expected"]["dense_top"]
+        assert keyword_top["chunk_index"] == case["expected"]["keyword_top"]
+
+        if case["name"] == "hyde_failure":
+            assert result["retrieval_metrics_gold"]["recall_at_k"] == 0.0
 
 
 def test_simulate_rag_pipeline_rrf_adversarial_disagreement(monkeypatch):

@@ -1,0 +1,79 @@
+[
+  {
+    "name": "dense_should_win",
+    "query": "Why does retrieval overlap happen spamword?",
+    "query_transformer": "baseline",
+    "top_k": 2,
+    "chunks": [
+      "Semantic explanation: retrieval overlap occurs when semantically similar query rewrites retrieve the same evidence repeatedly.",
+      "retrieval retrieval retrieval overlap overlap overlap query query query spamword.",
+      "Unrelated Kubernetes scheduling details."
+    ],
+    "labels": {
+      "1": 3,
+      "2": 0,
+      "3": 0
+    },
+    "expected": {
+      "dense_top": 1,
+      "keyword_top": 2
+    }
+  },
+  {
+    "name": "bm25_should_win",
+    "query": "What is BM25 term frequency?",
+    "query_transformer": "baseline",
+    "top_k": 1,
+    "chunks": [
+      "BM25 scoring relies on lexical overlap and term frequency.",
+      "Dense retrieval uses embeddings to match semantic concepts."
+    ],
+    "labels": {
+      "1": 3,
+      "2": 0
+    },
+    "expected": {
+      "dense_top": 2,
+      "keyword_top": 1
+    }
+  },
+  {
+    "name": "rank_disagreement",
+    "query": "semantic conflict test spamword",
+    "query_transformer": "baseline",
+    "top_k": 3,
+    "chunks": [
+      "semantic explanation of retrieval overlap and embedding neighborhoods.",
+      "spamword spamword query term spamword.",
+      "additional filler chunk."
+    ],
+    "labels": {
+      "1": 3,
+      "2": 0,
+      "3": 0
+    },
+    "expected": {
+      "dense_top": 1,
+      "keyword_top": 2
+    }
+  },
+  {
+    "name": "hyde_failure",
+    "query": "Why does retrieval overlap happen?",
+    "query_transformer": "hyde",
+    "top_k": 1,
+    "chunks": [
+      "Retrieval overlap happens when multiple query rewrites retrieve the same evidence repeatedly.",
+      "Attention collapse in long context causes the model to ignore middle tokens."
+    ],
+    "hyde_document": "Retrieval overlap is caused by attention collapse in long context.",
+    "labels": {
+      "1": 3,
+      "2": 0
+    },
+    "expected": {
+      "dense_top": 2,
+      "keyword_top": 2
+    }
+  }
+]
