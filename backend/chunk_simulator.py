@@ -407,19 +407,17 @@ def simulate_rag_pipeline(
         all_chunks = sorted(all_chunks, key=lambda x: x["similarity_score"], reverse=True)
     elif retrieval_strategy == "rrf_fused":
         retrieval_mode = "rrf_fused"
-    #we are declaring what tp fetch
+        # RRF only drives ranking; keep semantic scores intact for diagnostics.
         embedding_rank = sorted(
             all_chunks,
-            key=lambda x: x.get("embedding_score", 0.0),
+            key=lambda x: x.get("embedding_score") or 0.0,
             reverse=True,
         )
         keyword_rank = sorted(
             all_chunks,
-            key=lambda x: x.get("keyword_score", 0.0),
+            key=lambda x: x.get("keyword_score") or 0.0,
             reverse=True,
         )
-        # we are creating a dict : list whjich gonna take the values of the chunk index of the
-        
         rankings = {
             "embedding": [c["chunk_index"] for c in embedding_rank],
             "keyword": [c["chunk_index"] for c in keyword_rank],
@@ -427,7 +425,6 @@ def simulate_rag_pipeline(
         rrf_scores = compute_rrf_scores(rankings)
         for chunk in all_chunks:
             chunk["rrf_score"] = round(rrf_scores.get(chunk.get("chunk_index"), 0.0), 6)
-            chunk["similarity_score"] = chunk["rrf_score"]
         all_chunks = sorted(all_chunks, key=lambda x: x["rrf_score"], reverse=True)
 
     # Initial retrieval, then rerank
