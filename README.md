@@ -35,6 +35,7 @@ A heavily structured JSON response detailing:
 - **`recommended_config`**: Auto-calculated chunk size, overlap, and `top_k` specific to your corpus size.
 - **`attention_curve`**: Data to plot the LLM's positional bias.
 - **`is_optimized`**: True if Tokaroo engaged its 2-pass feedback loop to fix your parameters.
+- **`retrieval_debug`**: Pre-filter rank-level observability for each chunk (dense/keyword ranks, RRF score, contributions).
 
 ## The Priority Diagnosis Tree
 When a RAG system fails, it often fails in multiple ways. Tokaroo enforces a strict causal diagnosis hierarchy:
@@ -55,6 +56,31 @@ When a RAG system fails, it often fails in multiple ways. Tokaroo enforces a str
 - **GPT-4o (`gpt-4o`)**: 128k Window, `o200k_base`
 - **Gemini 1.5 Pro (`gemini-3.1-pro`)**: 1M Window
 - **Llama 3 8B (`llama-3-8b-instruct`)**: 8k Window
+
+## Phase 1 Status (Complete)
+**Retrieval**
+- Chunking + overlap analysis
+- Dense, BM25-like keyword, and hybrid retrieval
+- Multi-query and HyDE query transforms
+- Cross-encoder reranking
+- RRF fusion
+
+**Observability**
+- Retrieval diversity + overlap
+- Retrieval/usage gap and attention waste
+- Lost chunk analysis
+- Variant-level tracing
+- Rank-level debugging (dense rank, keyword rank, RRF score)
+
+**Evaluation**
+- Recall@K, MRR, nDCG, Hit Rate
+- Gold labels and gold metrics
+
+## Benchmark Suite
+Tokaroo now includes a small benchmark suite for controlled failure modes. See:
+- [backend/tests/fixtures/benchmark_suite.json](backend/tests/fixtures/benchmark_suite.json)
+
+Each case is designed to force disagreement between dense and lexical retrieval so RRF behavior is measurable.
 
 ## Quick Start
 From the project root:
@@ -107,10 +133,12 @@ What to look for in the JSON
 - `optimization.recommended_config` — small settings to try next
 - `optimization.attention_curve` — small list you can plot
 - `optimization.reorder_effect` — shows before/after and whether reordering helps
+- `retrieval_debug` — rank-level observability before filtering
 
 Testing
 -------
 - Backend tests are in `backend/tests/`. Run them from the `backend` folder with `pytest -q`.
+- Benchmark suite: `pytest tests/test_app.py -k benchmark_suite`
 
 Want help or improvements?
 -------------------------
