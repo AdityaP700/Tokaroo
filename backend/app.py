@@ -246,6 +246,7 @@ def simulate_rag(request: RagChunkRequest):
         ignored_relevant_chunks=rag_data.get("ignored_relevant_chunks"),
         attention_waste=rag_data.get("attention_waste"),
         reranker_impact=rag_data.get("reranker_impact"),
+        retrieval_debug=rag_data.get("retrieval_debug"),
         optimization=insights,
         chunks=rag_data["chunks"]
     )

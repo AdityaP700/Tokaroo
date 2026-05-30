@@ -96,6 +96,15 @@ def _keyword_overlap_score(query: str, text: str) -> float:
     return round(len(query_terms & text_terms) / max(1, len(query_terms)), 3)
 
 
+def _assign_ranks(chunks: list[dict], score_key: str) -> dict[int, int]:
+    ranked = sorted(
+        chunks,
+        key=lambda item: item.get(score_key) if item.get(score_key) is not None else float("-inf"),
+        reverse=True,
+    )
+    return {chunk.get("chunk_index"): rank for rank, chunk in enumerate(ranked, start=1)}
+
+
 def compute_rrf_scores(rankings: dict[str, list[int]], k: int = 60) -> dict[int, float]:
     rrf_scores: dict[int, float] = {}
     for ranked_ids in rankings.values():
@@ -403,11 +412,24 @@ def simulate_rag_pipeline(
                 chunk["similarity_score"] = round(1.0 - (0.5 * normalized_position), 3)
 
     # 3. Retrieval Phase
+    dense_rank_map: dict[int, int] = {}
+    keyword_rank_map: dict[int, int] = {}
+    if any(chunk.get("embedding_score") is not None for chunk in all_chunks):
+        dense_rank_map = _assign_ranks(all_chunks, "embedding_score")
+    if any(chunk.get("keyword_score") is not None for chunk in all_chunks):
+        keyword_rank_map = _assign_ranks(all_chunks, "keyword_score")
+    for chunk in all_chunks:
+        chunk_index = chunk.get("chunk_index")
+        chunk["dense_score"] = chunk.get("embedding_score")
+        chunk["dense_rank"] = dense_rank_map.get(chunk_index)
+        chunk["keyword_rank"] = keyword_rank_map.get(chunk_index)
+
     if retrieval_strategy == "relevance_sorted":
         all_chunks = sorted(all_chunks, key=lambda x: x["similarity_score"], reverse=True)
     elif retrieval_strategy == "rrf_fused":
         retrieval_mode = "rrf_fused"
         # RRF only drives ranking; keep semantic scores intact for diagnostics.
+        rrf_k = 60
         embedding_rank = sorted(
             all_chunks,
             key=lambda x: x.get("embedding_score") or 0.0,
@@ -422,10 +444,22 @@ def simulate_rag_pipeline(
             "embedding": [c["chunk_index"] for c in embedding_rank],
             "keyword": [c["chunk_index"] for c in keyword_rank],
         }
-        rrf_scores = compute_rrf_scores(rankings)
+        rrf_scores = compute_rrf_scores(rankings, k=rrf_k)
         for chunk in all_chunks:
-            chunk["rrf_score"] = round(rrf_scores.get(chunk.get("chunk_index"), 0.0), 6)
+            chunk_index = chunk.get("chunk_index")
+            dense_rank = dense_rank_map.get(chunk_index)
+            keyword_rank = keyword_rank_map.get(chunk_index)
+            dense_contribution = (1.0 / (rrf_k + dense_rank)) if dense_rank else None
+            keyword_contribution = (1.0 / (rrf_k + keyword_rank)) if keyword_rank else None
+            chunk["dense_contribution"] = round(dense_contribution, 6) if dense_contribution is not None else None
+            chunk["keyword_contribution"] = round(keyword_contribution, 6) if keyword_contribution is not None else None
+            chunk["rrf_score"] = round(rrf_scores.get(chunk_index, 0.0), 6)
         all_chunks = sorted(all_chunks, key=lambda x: x["rrf_score"], reverse=True)
+
+    for rank, chunk in enumerate(all_chunks, start=1):
+        chunk["final_rank"] = rank
+
+    retrieval_debug = [copy.deepcopy(chunk) for chunk in all_chunks]
 
     # Initial retrieval, then rerank
     retrieved_chunks = all_chunks[:top_k]
@@ -582,6 +616,7 @@ def simulate_rag_pipeline(
             "chunks_in_prompt": 0,
             "extra_tokens_due_to_overlap": extra_tokens,
             "chunks": [],
+            "retrieval_debug": retrieval_debug,
             "error": "context_window_overflow",
             "attention_curve": [],
             "retrieval_mode": retrieval_mode,
@@ -679,6 +714,7 @@ def simulate_rag_pipeline(
                 "chunks_in_prompt": len(valid_chunks),
                 "extra_tokens_due_to_overlap": extra_tokens,
                 "chunks": valid_chunks,
+                "retrieval_debug": retrieval_debug,
                 "attention_curve": [round(w, 3) for w in positional_weights],
                 "retrieval_mode": retrieval_mode,
                 "query_strategy": query_transformer,
@@ -725,6 +761,7 @@ def simulate_rag_pipeline(
         "chunks_in_prompt": len(valid_chunks),
         "extra_tokens_due_to_overlap": extra_tokens,
         "chunks": valid_chunks,
+        "retrieval_debug": retrieval_debug,
         "attention_curve": [round(w, 3) for w in positional_weights],
         "retrieval_mode": retrieval_mode,
         "query_strategy": query_transformer,

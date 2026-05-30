@@ -76,6 +76,14 @@ class BenchmarkRequest(BaseModel):
 class ChunkDetail(BaseModel):
     chunk_index: int
     similarity_score: float      # Fake Vector DB relevance
+    dense_rank: Optional[int] = None
+    dense_score: Optional[float] = None
+    keyword_rank: Optional[int] = None
+    keyword_score: Optional[float] = None
+    rrf_score: Optional[float] = None
+    dense_contribution: Optional[float] = None
+    keyword_contribution: Optional[float] = None
+    final_rank: Optional[int] = None
     relevance_score: Optional[float] = None
     positional_weight: float     # U-shape curve weight
     attention_weight: Optional[float] = None
@@ -140,5 +148,6 @@ class RagChunkResponse(BaseModel):
     ignored_relevant_chunks: Optional[List[int]] = None
     attention_waste: Optional[float] = None
     reranker_impact: Optional[Dict[str, Any]] = None
+    retrieval_debug: Optional[List[Dict[str, Any]]] = None
     optimization: OptimizationInsight
     chunks: List[ChunkDetail]

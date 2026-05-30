@@ -48,8 +48,32 @@ NARROW_BROAD_CORPUS = (
     "Context ordering affects attention and can create lost-in-the-middle failures. "
     "BM25 emphasizes lexical overlap while dense retrieval emphasizes semantics."
 )
+ADVERSARIAL_CORPUS = (
+    "Retrieval overlap happens when multiple query rewrites retrieve the same evidence repeatedly. "
+    "retrieval retrieval retrieval retrieval retrieval overlap overlap overlap overlap overlap. "
+    "Dense embeddings often map semantically similar queries into nearby vector neighborhoods."
+)
+ADVERSARIAL_RRF_CORPUS = (
+    "Retrieval overlap occurs when semantically similar query rewrites retrieve the same chunks repeatedly. "
+    "Dense retrieval embeddings map related queries into nearby vector spaces. "
+    "retrieval retrieval retrieval overlap overlap overlap query query query. "
+    "Kubernetes scheduling manages container placement. "
+    "BM25 scoring relies on lexical overlap and term frequency. "
+    "RLHF aligns model behavior but does not improve retrieval."
+)
+BM25_TRAP_CORPUS = (
+    "Retrieval overlap occurs when query rewrites repeatedly fetch the same evidence. "
+    "retrieval overlap retrieval overlap retrieval overlap retrieval overlap retrieval overlap. "
+    "The actual cause is dense embedding neighborhood collapse and semantic convergence. "
+    "Kubernetes retrieval overlap retrieval overlap retrieval overlap."
+)
 
-
+HYDE_DRIFT_CORPUS = (
+    "Retrieval overlap occurs because semantically similar queries retrieve the same chunks. "
+    "Quantum entanglement allows particles to exhibit correlated states. "
+    "Vector databases use approximate nearest neighbor search. "
+    "Black holes warp spacetime."
+)
 def test_api_health():
     response = client.get("/")
     assert response.status_code == 200
@@ -547,6 +571,115 @@ def test_simulate_rag_pipeline_supports_rrf_fused():
 
     assert result["retrieval_mode"] == "rrf_fused"
     assert result["total_retrieved_chunks"] >= result["unique_retrieved_chunks"]
+
+
+def test_simulate_rag_pipeline_exposes_rrf_observability():
+    token_ids = get_tokens(ADVERSARIAL_CORPUS, SUPPORTED_MODELS["gpt-4o"]["tokenizer"])
+
+    result = simulate_rag_pipeline(
+        token_ids=token_ids,
+        chunk_size=30,
+        query="Why does retrieval overlap happen?",
+        overlap=5,
+        tokenizer_name=SUPPORTED_MODELS["gpt-4o"]["tokenizer"],
+        top_k=4,
+        final_k=4,
+        retrieval_strategy="rrf_fused",
+        context_window=SUPPORTED_MODELS["gpt-4o"]["context_window"],
+        original_text=ADVERSARIAL_CORPUS,
+    )
+
+    chunk = result["retrieval_debug"][0]
+    assert chunk.get("dense_rank") is not None
+    assert chunk.get("keyword_rank") is not None
+    assert chunk.get("rrf_score") is not None
+    assert chunk.get("final_rank") is not None
+    if chunk.get("dense_contribution") is not None and chunk.get("keyword_contribution") is not None:
+        rrf_sum = round(chunk["dense_contribution"] + chunk["keyword_contribution"], 6)
+        assert abs(rrf_sum - chunk["rrf_score"]) <= 0.000001
+
+
+def test_simulate_rag_pipeline_reports_gold_metrics_for_rrf():
+    token_ids = get_tokens(ADVERSARIAL_CORPUS, SUPPORTED_MODELS["gpt-4o"]["tokenizer"])
+
+    result = simulate_rag_pipeline(
+        token_ids=token_ids,
+        chunk_size=30,
+        query="Why does retrieval overlap happen?",
+        overlap=5,
+        tokenizer_name=SUPPORTED_MODELS["gpt-4o"]["tokenizer"],
+        top_k=3,
+        final_k=3,
+        retrieval_strategy="rrf_fused",
+        context_window=SUPPORTED_MODELS["gpt-4o"]["context_window"],
+        original_text=ADVERSARIAL_CORPUS,
+        relevance_labels={1: 3, 2: 0, 3: 1},
+    )
+
+    assert result.get("retrieval_metrics_gold") is not None
+    assert set(result["retrieval_metrics_gold"].keys()) == {"recall_at_k", "mrr", "hit_rate", "ndcg"}
+
+
+def test_simulate_rag_pipeline_rrf_adversarial_disagreement(monkeypatch):
+    chunk_texts = {
+        1: "Retrieval overlap occurs when semantically similar query rewrites retrieve the same chunks repeatedly.",
+        2: "Dense retrieval embeddings map related queries into nearby vector spaces.",
+        3: "retrieval retrieval retrieval overlap overlap overlap query query query spamword.",
+        4: "Kubernetes scheduling manages container placement.",
+        5: "BM25 scoring relies on lexical overlap and term frequency.",
+        6: "RLHF aligns model behavior but does not improve retrieval.",
+    }
+
+    def fake_decode_tokens(tokens, tokenizer_name):
+        if not tokens:
+            return ""
+        return chunk_texts.get(tokens[0], "")
+
+    def fake_encode_texts(texts):
+        if isinstance(texts, str):
+            texts = [texts]
+
+        vectors = []
+        for text in texts:
+            lowered = text.lower()
+            if "retrieval overlap occurs" in lowered:
+                vectors.append([1.0, 0.0])
+            elif "dense retrieval embeddings" in lowered:
+                vectors.append([0.9, 0.1])
+            elif "retrieval retrieval retrieval" in lowered:
+                vectors.append([0.0, 1.0])
+            elif "kubernetes" in lowered:
+                vectors.append([0.1, 0.0])
+            elif "bm25 scoring" in lowered:
+                vectors.append([0.2, 0.0])
+            elif "rlhf" in lowered:
+                vectors.append([0.0, 0.1])
+            else:
+                vectors.append([0.0, 0.0])
+
+        return __import__("numpy").array(vectors, dtype=float)
+
+    monkeypatch.setattr(chunk_simulator, "decode_tokens", fake_decode_tokens)
+    monkeypatch.setattr(chunk_simulator, "_encode_texts", fake_encode_texts)
+
+    result = simulate_rag_pipeline(
+        token_ids=[1, 2, 3, 4, 5, 6],
+        chunk_size=1,
+        query="Why does retrieval overlap happen spamword?",
+        overlap=0,
+        tokenizer_name="cl100k_base",
+        top_k=6,
+        final_k=6,
+        retrieval_strategy="rrf_fused",
+        context_window=200,
+        original_text=ADVERSARIAL_RRF_CORPUS,
+    )
+
+    spam_chunk = next(chunk for chunk in result["retrieval_debug"] if chunk.get("chunk_index") == 3)
+    semantic_chunk = next(chunk for chunk in result["retrieval_debug"] if chunk.get("chunk_index") == 1)
+
+    assert spam_chunk.get("keyword_rank") == 1
+    assert semantic_chunk.get("dense_rank") == 1
 
 
 def test_simulate_rag_pipeline_handles_extreme_distractors():
