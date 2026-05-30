@@ -96,6 +96,14 @@ def _keyword_overlap_score(query: str, text: str) -> float:
     return round(len(query_terms & text_terms) / max(1, len(query_terms)), 3)
 
 
+def compute_rrf_scores(rankings: dict[str, list[int]], k: int = 60) -> dict[int, float]:
+    rrf_scores: dict[int, float] = {}
+    for ranked_ids in rankings.values():
+        for rank, chunk_id in enumerate(ranked_ids, start=1):
+            rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + (1.0 / (k + rank))
+    return rrf_scores
+
+
 def compute_retrieval_usage_gap(chunks: list[dict]) -> dict:
     if not chunks:
         return {"retrieval_quality": 0.0, "usage_quality": 0.0, "gap": 0.0}
@@ -397,6 +405,30 @@ def simulate_rag_pipeline(
     # 3. Retrieval Phase
     if retrieval_strategy == "relevance_sorted":
         all_chunks = sorted(all_chunks, key=lambda x: x["similarity_score"], reverse=True)
+    elif retrieval_strategy == "rrf_fused":
+        retrieval_mode = "rrf_fused"
+    #we are declaring what tp fetch
+        embedding_rank = sorted(
+            all_chunks,
+            key=lambda x: x.get("embedding_score", 0.0),
+            reverse=True,
+        )
+        keyword_rank = sorted(
+            all_chunks,
+            key=lambda x: x.get("keyword_score", 0.0),
+            reverse=True,
+        )
+        # we are creating a dict : list whjich gonna take the values of the chunk index of the
+        
+        rankings = {
+            "embedding": [c["chunk_index"] for c in embedding_rank],
+            "keyword": [c["chunk_index"] for c in keyword_rank],
+        }
+        rrf_scores = compute_rrf_scores(rankings)
+        for chunk in all_chunks:
+            chunk["rrf_score"] = round(rrf_scores.get(chunk.get("chunk_index"), 0.0), 6)
+            chunk["similarity_score"] = chunk["rrf_score"]
+        all_chunks = sorted(all_chunks, key=lambda x: x["rrf_score"], reverse=True)
 
     # Initial retrieval, then rerank
     retrieved_chunks = all_chunks[:top_k]

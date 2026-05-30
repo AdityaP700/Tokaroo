@@ -527,6 +527,28 @@ def test_simulate_rag_pipeline_reports_query_diversity_metrics():
     assert 0.0 <= result["retrieval_overlap"] <= 1.0
 
 
+def test_simulate_rag_pipeline_supports_rrf_fused():
+    token_ids = get_tokens(MIXED_CORPUS, SUPPORTED_MODELS["gpt-4o"]["tokenizer"])
+
+    result = simulate_rag_pipeline(
+        token_ids=token_ids,
+        chunk_size=40,
+        query="Why does retrieval overlap happen in multi-query systems?",
+        overlap=5,
+        tokenizer_name=SUPPORTED_MODELS["gpt-4o"]["tokenizer"],
+        top_k=4,
+        final_k=4,
+        retrieval_strategy="rrf_fused",
+        context_window=SUPPORTED_MODELS["gpt-4o"]["context_window"],
+        original_text=MIXED_CORPUS,
+        query_transformer="multi_query",
+        query_variants_max=6,
+    )
+
+    assert result["retrieval_mode"] == "rrf_fused"
+    assert result["total_retrieved_chunks"] >= result["unique_retrieved_chunks"]
+
+
 def test_simulate_rag_pipeline_handles_extreme_distractors():
     token_ids = get_tokens(EXTREME_DISTRACTOR_CORPUS, SUPPORTED_MODELS["gpt-4o"]["tokenizer"])
 

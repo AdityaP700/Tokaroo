@@ -55,7 +55,7 @@ class RagChunkRequest(BaseModel):
     overlap: int
     top_k: Optional[int] = Field(default=5, description="Number of chunks retrieved by Vector DB")
     final_k: Optional[int] = Field(default=4, ge=1, description="Number of chunks kept after reranking")
-    retrieval_strategy: Optional[str] = Field(default="relevance_sorted", description="'sequential' or 'relevance_sorted'")
+    retrieval_strategy: Optional[str] = Field(default="relevance_sorted", description="'sequential', 'relevance_sorted', or 'rrf_fused'")
     query_transformer: Optional[str] = Field(default="baseline", description="'baseline', 'multi_query', or 'hyde'")
     query_variants_max: Optional[int] = Field(default=5, ge=1, le=10, description="Max rewritten queries to emit")
     auto_optimize: Optional[bool] = Field(default=True, description="Enable 2-pass adaptive optimization")
