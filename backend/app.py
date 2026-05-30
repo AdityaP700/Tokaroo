@@ -186,6 +186,8 @@ def simulate_rag(request: RagChunkRequest):
         query_transformer=request.query_transformer,
         query_variants_max=request.query_variants_max,
         relevance_labels=request.relevance_labels,
+        context_placement_strategy=request.context_placement_strategy,
+        random_seed=request.random_seed,
     )
 
     # ---------------------------------------------------------
@@ -215,6 +217,8 @@ def simulate_rag(request: RagChunkRequest):
             original_text=request.text,
             query_transformer=request.query_transformer,
             query_variants_max=request.query_variants_max,
+            context_placement_strategy=request.context_placement_strategy,
+            random_seed=request.random_seed,
         )
         # Re-analyze with the new data
         insights = generate_rag_diagnosis(rag_data, new_top_k, retrieval_strategy, new_chunk_size)
@@ -228,6 +232,7 @@ def simulate_rag(request: RagChunkRequest):
         extra_tokens_due_to_overlap=rag_data["extra_tokens_due_to_overlap"],
         error=rag_data.get("error"),
         retrieval_mode=rag_data.get("retrieval_mode"),
+        context_placement_strategy=rag_data.get("context_placement_strategy"),
         query_strategy=rag_data.get("query_strategy"),
         query_variants=rag_data.get("query_variants"),
         hyde_document=rag_data.get("hyde_document"),

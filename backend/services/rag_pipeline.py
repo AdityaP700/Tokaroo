@@ -2,6 +2,7 @@ import copy
 
 try:
     from core.attention import calculate_attention_weights
+    from core.context_placement import build_prompt
     from core.retrieval.embedding import _encode_texts
     from core.retrieval.keyword import _keyword_overlap_score, _normalized_words, _ordered_terms
     from core.retrieval.metrics import (
@@ -17,6 +18,7 @@ try:
     from query_transformers import transform_query
 except ModuleNotFoundError:
     from backend.core.attention import calculate_attention_weights
+    from backend.core.context_placement import build_prompt
     from backend.core.retrieval.embedding import _encode_texts
     from backend.core.retrieval.keyword import _keyword_overlap_score, _normalized_words, _ordered_terms
     from backend.core.retrieval.metrics import (
@@ -46,6 +48,8 @@ def simulate_rag_pipeline(
     query_transformer: str | None = "baseline",
     query_variants_max: int = 5,
     relevance_labels: dict[int, int] | None = None,
+    context_placement_strategy: str | None = "reverse",
+    random_seed: int | None = None,
 ) -> dict:
     if overlap > chunk_size * 0.5:
         overlap = int(chunk_size * 0.2)
@@ -287,14 +291,9 @@ def simulate_rag_pipeline(
     rerank_scores = [round(chunk.get("rerank_score", 0.0), 4) for chunk in diverse_chunks]
     reranked = True
 
-    # reorder to put best chunks at the end (lost-in-middle mitigation)
+    # reorder prompt placement to measure placement impact independently of retrieval
     final_candidates = diverse_chunks
-    if len(final_candidates) > 1:
-        # Sort by rerank score descending, then reverse so highest is last
-        important = sorted(final_candidates, key=lambda x: x.get("rerank_score", 0.0), reverse=True)
-        inject_order = important[::-1]
-    else:
-        inject_order = final_candidates
+    inject_order = build_prompt(final_candidates, context_placement_strategy or "reverse", random_seed)
 
     def _build_valid_from_candidates(candidate_chunks: list[dict]) -> list[dict]:
         # operate on copies to avoid mutating shared chunk dicts
@@ -417,6 +416,7 @@ def simulate_rag_pipeline(
             "ignored_relevant_chunks": ignored_relevant_chunks,
             "attention_waste": attention_waste,
             "reranker_impact": reranker_impact,
+            "context_placement_strategy": context_placement_strategy or "reverse",
         }
 
     visible_positions = range(len(valid_chunks))
@@ -522,6 +522,7 @@ def simulate_rag_pipeline(
                 "ignored_relevant_chunks": ignored_relevant_chunks,
                 "attention_waste": attention_waste,
                 "reranker_impact": reranker_impact,
+                "context_placement_strategy": context_placement_strategy or "reverse",
             }
 
         thresh_critical = min_imp + (0.3 * range_imp)
@@ -569,4 +570,5 @@ def simulate_rag_pipeline(
         "ignored_relevant_chunks": ignored_relevant_chunks,
         "attention_waste": attention_waste,
         "reranker_impact": reranker_impact,
+        "context_placement_strategy": context_placement_strategy or "reverse",
     }

@@ -56,6 +56,11 @@ class RagChunkRequest(BaseModel):
     top_k: Optional[int] = Field(default=5, description="Number of chunks retrieved by Vector DB")
     final_k: Optional[int] = Field(default=4, ge=1, description="Number of chunks kept after reranking")
     retrieval_strategy: Optional[str] = Field(default="relevance_sorted", description="'sequential', 'relevance_sorted', or 'rrf_fused'")
+    context_placement_strategy: Optional[str] = Field(
+        default="reverse",
+        description="'relevance', 'reverse', 'random', or 'middle_insert'",
+    )
+    random_seed: Optional[int] = Field(default=None, description="Seed for random placement strategy")
     query_transformer: Optional[str] = Field(default="baseline", description="'baseline', 'multi_query', or 'hyde'")
     query_variants_max: Optional[int] = Field(default=5, ge=1, le=10, description="Max rewritten queries to emit")
     auto_optimize: Optional[bool] = Field(default=True, description="Enable 2-pass adaptive optimization")
@@ -130,6 +135,7 @@ class RagChunkResponse(BaseModel):
     extra_tokens_due_to_overlap: int
     error: Optional[str] = None
     retrieval_mode: Optional[str] = None
+    context_placement_strategy: Optional[str] = None
     query_strategy: Optional[str] = None
     query_variants: Optional[List[str]] = None
     hyde_document: Optional[str] = None

@@ -3,7 +3,12 @@ import math
 
 def compute_retrieval_usage_gap(chunks: list[dict]) -> dict:
     if not chunks:
-        return {"retrieval_quality": 0.0, "usage_quality": 0.0, "gap": 0.0}
+        return {
+            "retrieval_quality": 0.0,
+            "usage_quality": 0.0,
+            "answer_quality": 0.0,
+            "gap": 0.0,
+        }
 
     # Now using rerank_score as the authoritative relevance signal
     retrieval_scores = [c.get("rerank_score", c.get("similarity_score", 0.0)) for c in chunks]
@@ -19,6 +24,7 @@ def compute_retrieval_usage_gap(chunks: list[dict]) -> dict:
     return {
         "retrieval_quality": round(retrieval_quality, 3),
         "usage_quality": round(usage_quality, 3),
+        "answer_quality": round(usage_quality, 3),
         "gap": round(gap, 3),
     }
 

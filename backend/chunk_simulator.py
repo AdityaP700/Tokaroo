@@ -20,6 +20,8 @@ try:
         rerank_chunks,
         set_cross_encoder_reranker,
     )
+    from core.tokenization import decode_tokens, get_tokens
+    from query_transformers import transform_query
     from services.rag_pipeline import simulate_rag_pipeline
 except ModuleNotFoundError:
     from backend.core.retrieval.embedding import (
@@ -43,4 +45,6 @@ except ModuleNotFoundError:
         rerank_chunks,
         set_cross_encoder_reranker,
     )
+    from backend.core.tokenization import decode_tokens, get_tokens
+    from backend.query_transformers import transform_query
     from backend.services.rag_pipeline import simulate_rag_pipeline
