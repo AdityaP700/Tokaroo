@@ -168,7 +168,7 @@ def simulate_rag(request: RagChunkRequest):
     if request.overlap >= request.chunk_size:
         request.overlap = int(request.chunk_size * 0.2)
 
-    top_k = request.top_k or 5
+    top_k = max(request.top_k or 5, request.final_k or 0)
     retrieval_strategy = request.retrieval_strategy or "relevance_sorted"
 
     # Run the chunking simulator
@@ -201,7 +201,7 @@ def simulate_rag(request: RagChunkRequest):
     if request.auto_optimize and insights["health_score"] < 85:
         new_chunk_size = insights["recommended_config"].get("chunk_size", request.chunk_size)
         new_overlap = insights["recommended_config"].get("overlap", request.overlap)
-        new_top_k = insights["recommended_config"].get("top_k", top_k)
+        new_top_k = max(insights["recommended_config"].get("top_k", top_k), request.final_k or 0)
 
         # Re-run with optimized parameters
         rag_data = run_rag_simulation(
@@ -217,6 +217,7 @@ def simulate_rag(request: RagChunkRequest):
             original_text=request.text,
             query_transformer=request.query_transformer,
             query_variants_max=request.query_variants_max,
+            relevance_labels=request.relevance_labels,
             context_placement_strategy=request.context_placement_strategy,
             random_seed=request.random_seed,
         )

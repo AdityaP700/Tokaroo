@@ -267,8 +267,23 @@ def simulate_rag_pipeline(
         filtered_chunks = reranked_chunks  # fallback if too aggressive
 
     # Step 2: Reranker cutoff (formalize top K selection pool)
-    final_limit = max(1, min(final_k or 4, len(filtered_chunks)))
-    pool_for_diversity = filtered_chunks[:final_limit * 2]  # take extra for diversity buffer
+    # final_k is an experiment control: if the caller asks for 7 chunks and
+    # retrieval produced 7 candidates, placement strategies need all 7 to
+    # make middle/reverse/relevance ordering observable.
+    final_limit = max(1, min(final_k or 4, len(reranked_chunks)))
+
+    if len(filtered_chunks) < final_limit:
+        seen_indexes = {chunk.get("chunk_index") for chunk in filtered_chunks}
+        for chunk in reranked_chunks:
+            chunk_index_value = chunk.get("chunk_index")
+            if chunk_index_value in seen_indexes:
+                continue
+            filtered_chunks.append(chunk)
+            seen_indexes.add(chunk_index_value)
+            if len(filtered_chunks) >= final_limit:
+                break
+
+    pool_for_diversity = filtered_chunks[: max(final_limit * 2, final_limit)]
 
     # Step 3: Diversity filtering (remove near-duplicates to maximize context utilization)
     diverse_chunks = []
@@ -284,6 +299,17 @@ def simulate_rag_pipeline(
             diverse_chunks.append(c)
         if len(diverse_chunks) >= final_limit:
             break
+
+    if len(diverse_chunks) < final_limit:
+        seen_indexes = {chunk.get("chunk_index") for chunk in diverse_chunks}
+        for chunk in filtered_chunks + reranked_chunks:
+            chunk_index_value = chunk.get("chunk_index")
+            if chunk_index_value in seen_indexes:
+                continue
+            diverse_chunks.append(chunk)
+            seen_indexes.add(chunk_index_value)
+            if len(diverse_chunks) >= final_limit:
+                break
 
     if not diverse_chunks:
         diverse_chunks = reranked_chunks[:final_limit]

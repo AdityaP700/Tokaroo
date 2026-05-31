@@ -21,10 +21,31 @@ def compute_retrieval_usage_gap(chunks: list[dict]) -> dict:
     usage_quality = sum(usage_scores) / len(usage_scores)
     gap = retrieval_quality - usage_quality
 
+    attention_total = sum(c.get("attention_weight", 0.0) for c in chunks)
+    attended_relevance = (
+        sum(
+            c.get("rerank_score", c.get("similarity_score", 0.0)) * c.get("attention_weight", 0.0)
+            for c in chunks
+        )
+        / attention_total
+        if attention_total > 0
+        else 0.0
+    )
+    relevance_threshold = max(0.3, retrieval_quality * 0.8)
+    relevant_chunks = [score for score in retrieval_scores if score >= relevance_threshold]
+    used_relevant_chunks = [
+        c
+        for c in chunks
+        if c.get("rerank_score", c.get("similarity_score", 0.0)) >= relevance_threshold
+        and c.get("attention_weight", 0.0) >= 0.3
+    ]
+    relevant_coverage = len(used_relevant_chunks) / len(relevant_chunks) if relevant_chunks else 0.0
+    answer_quality = (0.45 * usage_quality) + (0.35 * attended_relevance) + (0.2 * relevant_coverage)
+
     return {
         "retrieval_quality": round(retrieval_quality, 3),
         "usage_quality": round(usage_quality, 3),
-        "answer_quality": round(usage_quality, 3),
+        "answer_quality": round(answer_quality, 3),
         "gap": round(gap, 3),
     }
 
