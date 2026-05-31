@@ -68,6 +68,12 @@ class RagChunkRequest(BaseModel):
         default=None,
         description="Gold labels by chunk_index. 0 = irrelevant, 1-3 = graded relevance"
     )
+    gold_chunk_id: Optional[int] = Field(default=None, description="Chunk index that contains the reference answer")
+    answer_chunk_position: Optional[str | int] = Field(
+        default=None,
+        description="Controlled 1-based prompt position for the gold chunk, or 'first', 'middle', 'last'",
+    )
+    gold_answer: Optional[str] = Field(default=None, description="Reference answer used for answer-quality scoring")
 class BenchmarkRequest(BaseModel):
     queries: List[str]
     text: str
@@ -151,6 +157,7 @@ class RagChunkResponse(BaseModel):
     reranked: Optional[bool] = None
     rerank_scores: Optional[List[float]] = None
     retrieval_analysis: Optional[Dict[str, float]] = None
+    answer_evaluation: Optional[Dict[str, Any]] = None
     ignored_relevant_chunks: Optional[List[int]] = None
     attention_waste: Optional[float] = None
     reranker_impact: Optional[Dict[str, Any]] = None

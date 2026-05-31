@@ -26,5 +26,9 @@ def _keyword_overlap_score(query: str, text: str) -> float:
     if not query_terms:
         return 0.0
 
-    text_terms = _normalized_words(text)
-    return round(len(query_terms & text_terms) / max(1, len(query_terms)), 3)
+    matching_terms = [
+        match.group(0).lower()
+        for match in WORD_PATTERN.finditer(text)
+        if match.group(0).lower() in query_terms
+    ]
+    return round(min(1.0, len(matching_terms) / max(1, len(query_terms))), 3)

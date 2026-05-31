@@ -50,12 +50,85 @@ def simulate_rag_pipeline(
     relevance_labels: dict[int, int] | None = None,
     context_placement_strategy: str | None = "reverse",
     random_seed: int | None = None,
+    gold_chunk_id: int | None = None,
+    answer_chunk_position: int | str | None = None,
+    gold_answer: str | None = None,
 ) -> dict:
     if overlap > chunk_size * 0.5:
         overlap = int(chunk_size * 0.2)
 
     if chunk_size <= overlap:
         raise ValueError("Chunk size must be strictly greater than overlap.")
+
+    def _target_position_index(position: int | str | None, prompt_size: int) -> int:
+        if prompt_size <= 1:
+            return 0
+        if isinstance(position, str):
+            normalized = position.strip().lower()
+            if normalized == "first":
+                return 0
+            if normalized == "middle":
+                return prompt_size // 2
+            if normalized == "last":
+                return prompt_size - 1
+            try:
+                position = int(normalized)
+            except ValueError:
+                return prompt_size // 2
+        if isinstance(position, int):
+            return max(0, min(prompt_size - 1, position - 1))
+        return prompt_size // 2
+
+    def _build_controlled_context() -> list[dict] | None:
+        if gold_chunk_id is None or answer_chunk_position is None:
+            return None
+
+        gold_chunk = next((chunk for chunk in all_chunks if chunk.get("chunk_index") == gold_chunk_id), None)
+        if gold_chunk is None:
+            return None
+
+        prompt_size = max(1, min(final_k or top_k or len(all_chunks), len(all_chunks)))
+        target_index = _target_position_index(answer_chunk_position, prompt_size)
+        other_chunks = sorted(
+            (chunk for chunk in all_chunks if chunk.get("chunk_index") != gold_chunk_id),
+            key=lambda item: item.get("chunk_index", 0),
+        )[: max(0, prompt_size - 1)]
+        controlled = other_chunks[:]
+        controlled.insert(target_index, gold_chunk)
+        return controlled[:prompt_size]
+
+    def _score_answer_quality(chunks: list[dict]) -> dict | None:
+        if gold_chunk_id is None:
+            return None
+
+        gold_prompt_position = None
+        gold_chunk = None
+        for index, chunk in enumerate(chunks, start=1):
+            if chunk.get("chunk_index") == gold_chunk_id:
+                gold_prompt_position = index
+                gold_chunk = chunk
+                break
+
+        attention_score = float(gold_chunk.get("attention_weight", 0.0)) if gold_chunk else 0.0
+        semantic_support = float(gold_chunk.get("relevance_score", gold_chunk.get("similarity_score", 0.0))) if gold_chunk else 0.0
+
+        if gold_answer and gold_chunk:
+            encoded = _encode_texts([gold_answer, gold_chunk.get("decoded_text", "")])
+            if encoded is not None and len(encoded) == 2:
+                semantic_support = max(0.0, min(1.0, float(encoded[0] @ encoded[1])))
+            else:
+                semantic_support = _keyword_overlap_score(gold_answer, gold_chunk.get("decoded_text", ""))
+
+        answer_quality = round(attention_score * semantic_support, 3)
+        return {
+            "gold_chunk_id": gold_chunk_id,
+            "answer_chunk_position": answer_chunk_position,
+            "actual_position": gold_prompt_position,
+            "gold_chunk_in_prompt": gold_chunk is not None,
+            "gold_attention_weight": round(attention_score, 3),
+            "semantic_support": round(semantic_support, 3),
+            "answer_quality": answer_quality,
+        }
 
     all_chunks = []
     start = 0
@@ -100,8 +173,8 @@ def simulate_rag_pipeline(
     hyde_generated_terms = None
     if total_chunks_created > 0:
         query = query or original_text or ""
-        variants = transform_query(query, strategy=query_transformer, max_variants=query_variants_max)
-        query_texts = [variant.text for variant in variants] or [query]
+        variants = transform_query(query, strategy=query_transformer, max_variants=query_variants_max) if query.strip() else []
+        query_texts = [variant.text for variant in variants] or ([query] if query.strip() else [])
         query_terms_list = [_normalized_words(text) for text in query_texts]
         query_embedding = _encode_texts(query_texts) if query_texts else None
         chunk_texts = [chunk["decoded_text"] for chunk in all_chunks]
@@ -117,8 +190,8 @@ def simulate_rag_pipeline(
             for i, chunk in enumerate(all_chunks):
                 chunk_terms = chunk_terms_list[i]
                 keyword_scores = [
-                    len(query_terms & chunk_terms) / max(1, len(query_terms)) if query_terms else 0.0
-                    for query_terms in query_terms_list
+                    _keyword_overlap_score(query_text, chunk["decoded_text"])
+                    for query_text in query_texts
                 ]
                 keyword_score = max(keyword_scores) if keyword_scores else 0.0
 
@@ -142,7 +215,7 @@ def simulate_rag_pipeline(
                 variant_scores = []
                 for i, chunk in enumerate(all_chunks):
                     chunk_terms = chunk_terms_list[i]
-                    keyword_score = len(variant_terms & chunk_terms) / max(1, len(variant_terms)) if variant_terms else 0.0
+                    keyword_score = _keyword_overlap_score(variant_text, chunk.get("decoded_text", ""))
                     if query_embedding is not None and chunk_embeddings is not None:
                         embedding_score = float(chunk_embeddings[i] @ query_embedding[variant_index])
                         score = 0.5 * embedding_score + 0.5 * keyword_score
@@ -174,7 +247,7 @@ def simulate_rag_pipeline(
             orig_terms = _normalized_words(original_text)
             for chunk in all_chunks:
                 chunk_terms = chunk_terms_list[chunk.get("chunk_index", 1) - 1]
-                chunk["keyword_score"] = round(len(orig_terms & chunk_terms) / max(1, len(orig_terms)), 3)
+                chunk["keyword_score"] = _keyword_overlap_score(original_text, chunk.get("decoded_text", ""))
                 chunk["embedding_score"] = None
                 chunk["similarity_score"] = chunk["keyword_score"]
         else:
@@ -317,9 +390,15 @@ def simulate_rag_pipeline(
     rerank_scores = [round(chunk.get("rerank_score", 0.0), 4) for chunk in diverse_chunks]
     reranked = True
 
-    # reorder prompt placement to measure placement impact independently of retrieval
-    final_candidates = diverse_chunks
-    inject_order = build_prompt(final_candidates, context_placement_strategy or "reverse", random_seed)
+    controlled_context = _build_controlled_context()
+    if controlled_context is not None:
+        final_limit = len(controlled_context)
+        final_candidates = controlled_context
+        inject_order = controlled_context
+    else:
+        # reorder prompt placement to measure placement impact independently of retrieval
+        final_candidates = diverse_chunks
+        inject_order = build_prompt(final_candidates, context_placement_strategy or "reverse", random_seed)
 
     def _build_valid_from_candidates(candidate_chunks: list[dict]) -> list[dict]:
         # operate on copies to avoid mutating shared chunk dicts
@@ -411,6 +490,9 @@ def simulate_rag_pipeline(
     if not valid_chunks:
         # compute empty metrics
         retrieval_analysis = compute_retrieval_usage_gap([])
+        answer_evaluation = _score_answer_quality([])
+        if answer_evaluation:
+            retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]
         ignored_relevant_chunks = detect_ignored_relevant([])
         attention_waste = compute_attention_waste([])
 
@@ -439,6 +521,7 @@ def simulate_rag_pipeline(
             "reranked": reranked,
             "rerank_scores": rerank_scores,
             "retrieval_analysis": retrieval_analysis,
+            "answer_evaluation": answer_evaluation,
             "ignored_relevant_chunks": ignored_relevant_chunks,
             "attention_waste": attention_waste,
             "reranker_impact": reranker_impact,
@@ -508,7 +591,9 @@ def simulate_rag_pipeline(
 
         if len(valid_chunks) == 1 or range_imp == 0:
             for chunk in valid_chunks:
-                if chunk.get("lost_reason") == "position_bias":
+                if chunk.get("lost_reason") == "noise_attended":
+                    chunk["risk_level"] = "high_risk (position_bias)"
+                elif chunk.get("lost_reason") == "position_bias":
                     chunk["risk_level"] = "high_risk (position_bias)"
                 elif chunk.get("lost_reason") == "lost_in_middle":
                     chunk["risk_level"] = "high_risk (lost_in_middle)"
@@ -518,6 +603,9 @@ def simulate_rag_pipeline(
                     chunk["risk_level"] = "safe (high retention)"
 
             retrieval_analysis = compute_retrieval_usage_gap(valid_chunks)
+            answer_evaluation = _score_answer_quality(valid_chunks)
+            if answer_evaluation:
+                retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]
             ignored_relevant_chunks = detect_ignored_relevant(valid_chunks)
             attention_waste = compute_attention_waste(valid_chunks)
 
@@ -545,6 +633,7 @@ def simulate_rag_pipeline(
                 "reranked": reranked,
                 "rerank_scores": rerank_scores,
                 "retrieval_analysis": retrieval_analysis,
+                "answer_evaluation": answer_evaluation,
                 "ignored_relevant_chunks": ignored_relevant_chunks,
                 "attention_waste": attention_waste,
                 "reranker_impact": reranker_impact,
@@ -566,6 +655,9 @@ def simulate_rag_pipeline(
                 chunk["risk_level"] = "safe (high retention)"
 
     retrieval_analysis = compute_retrieval_usage_gap(valid_chunks)
+    answer_evaluation = _score_answer_quality(valid_chunks)
+    if answer_evaluation:
+        retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]
     ignored_relevant_chunks = detect_ignored_relevant(valid_chunks)
     attention_waste = compute_attention_waste(valid_chunks)
 
@@ -593,6 +685,7 @@ def simulate_rag_pipeline(
         "reranked": reranked,
         "rerank_scores": rerank_scores,
         "retrieval_analysis": retrieval_analysis,
+        "answer_evaluation": answer_evaluation,
         "ignored_relevant_chunks": ignored_relevant_chunks,
         "attention_waste": attention_waste,
         "reranker_impact": reranker_impact,

@@ -11,13 +11,15 @@ def analyze_prompt_failure(token_count: int, context_window: int, attention_weig
     # 2. Middle Risk Detection
     # Look at the bottom 20% of the attention curve to see how bad the drop is
     mid_idx = len(attention_weights) // 2
+    inner_weights = attention_weights[1:-1] if len(attention_weights) > 2 else attention_weights
+    middle_attention = min(inner_weights) if inner_weights else 1.0
     middle_risk = "low"
 
-    if len(attention_weights) > 5:
+    if len(attention_weights) >= 5:
         # If the middle drops below 0.3, the model is likely to hallucinate or ignore it
-        if attention_weights[mid_idx] < 0.3:
+        if min(attention_weights[mid_idx], middle_attention) < 0.3:
             middle_risk = "high"
-        elif attention_weights[mid_idx] < 0.5:
+        elif min(attention_weights[mid_idx], middle_attention) < 0.5:
             middle_risk = "medium"
 
     # 3. Comprehensive Risk Assessment
@@ -25,7 +27,7 @@ def analyze_prompt_failure(token_count: int, context_window: int, attention_weig
     reasons = []
 
     # Evaluate Truncation
-    if overflow_percent > 0.2:
+    if overflow_percent >= 0.15:
         failure_risk = "critical"
         reasons.append(
             f"Critical Truncation: {overflow_percent*100:.1f}% of your prompt is lost. The model will never see it."

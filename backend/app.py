@@ -15,6 +15,39 @@ from chunk_simulator import (
     set_sentence_embedding_model,
     set_cross_encoder_reranker,
 )
+
+
+def _response_chunks(chunks: list[dict]) -> list[dict]:
+    normalized = []
+    for index, chunk in enumerate(chunks, start=1):
+        normalized.append(
+            {
+                "chunk_index": chunk.get("chunk_index", index),
+                "similarity_score": chunk.get("similarity_score", 0.0),
+                "dense_rank": chunk.get("dense_rank"),
+                "dense_score": chunk.get("dense_score"),
+                "keyword_rank": chunk.get("keyword_rank"),
+                "keyword_score": chunk.get("keyword_score"),
+                "rrf_score": chunk.get("rrf_score"),
+                "dense_contribution": chunk.get("dense_contribution"),
+                "keyword_contribution": chunk.get("keyword_contribution"),
+                "final_rank": chunk.get("final_rank"),
+                "relevance_score": chunk.get("relevance_score"),
+                "positional_weight": chunk.get("positional_weight", 0.0),
+                "attention_weight": chunk.get("attention_weight"),
+                "final_importance": chunk.get("final_importance", 0.0),
+                "risk_level": chunk.get("risk_level", "unknown"),
+                "used_by_model": chunk.get("used_by_model"),
+                "lost_reason": chunk.get("lost_reason"),
+                "start_token": chunk.get("start_token", 0),
+                "end_token": chunk.get("end_token", 0),
+                "token_count": chunk.get("token_count", 0),
+                "boundary_snippet": chunk.get("boundary_snippet", ""),
+            }
+        )
+    return normalized
+
+
 def _load_env() -> None:
     base_dir = Path(__file__).resolve().parent
     for name in (".env.local", ".env"):
@@ -164,9 +197,8 @@ def simulate_rag(request: RagChunkRequest):
     config = SUPPORTED_MODELS[request.model]
     token_ids = get_tokens(request.text, config["tokenizer"])
 
-    # Guardrails for bad math
     if request.overlap >= request.chunk_size:
-        request.overlap = int(request.chunk_size * 0.2)
+        raise HTTPException(status_code=400, detail="Overlap must be less than chunk size.")
 
     top_k = max(request.top_k or 5, request.final_k or 0)
     retrieval_strategy = request.retrieval_strategy or "relevance_sorted"
@@ -188,6 +220,9 @@ def simulate_rag(request: RagChunkRequest):
         relevance_labels=request.relevance_labels,
         context_placement_strategy=request.context_placement_strategy,
         random_seed=request.random_seed,
+        gold_chunk_id=request.gold_chunk_id,
+        answer_chunk_position=request.answer_chunk_position,
+        gold_answer=request.gold_answer,
     )
 
     # ---------------------------------------------------------
@@ -220,6 +255,9 @@ def simulate_rag(request: RagChunkRequest):
             relevance_labels=request.relevance_labels,
             context_placement_strategy=request.context_placement_strategy,
             random_seed=request.random_seed,
+            gold_chunk_id=request.gold_chunk_id,
+            answer_chunk_position=request.answer_chunk_position,
+            gold_answer=request.gold_answer,
         )
         # Re-analyze with the new data
         insights = generate_rag_diagnosis(rag_data, new_top_k, retrieval_strategy, new_chunk_size)
@@ -249,12 +287,13 @@ def simulate_rag(request: RagChunkRequest):
         reranked=rag_data.get("reranked"),
         rerank_scores=rag_data.get("rerank_scores"),
         retrieval_analysis=rag_data.get("retrieval_analysis"),
+        answer_evaluation=rag_data.get("answer_evaluation"),
         ignored_relevant_chunks=rag_data.get("ignored_relevant_chunks"),
         attention_waste=rag_data.get("attention_waste"),
         reranker_impact=rag_data.get("reranker_impact"),
         retrieval_debug=rag_data.get("retrieval_debug"),
         optimization=insights,
-        chunks=rag_data["chunks"]
+        chunks=_response_chunks(rag_data["chunks"])
     )
 
 # =========================================================================

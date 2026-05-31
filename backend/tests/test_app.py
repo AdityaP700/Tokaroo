@@ -488,14 +488,14 @@ def test_simulate_rag_pipeline_adds_chunk_traceability(monkeypatch):
     assert result["chunks"][2]["lost_reason"] in {"low_relevance", "lost_in_middle", "position_bias"}
     # New metrics: retrieval vs usage gap, ignored relevant detection, attention waste
     assert "retrieval_analysis" in result
-    assert set(result["retrieval_analysis"].keys()) == {"retrieval_quality", "usage_quality", "gap"}
+    assert set(result["retrieval_analysis"].keys()) == {"retrieval_quality", "usage_quality", "answer_quality", "gap"}
     assert "ignored_relevant_chunks" in result
     assert isinstance(result["ignored_relevant_chunks"], list)
     assert "attention_waste" in result
     assert isinstance(result["attention_waste"], float)
     assert "reranker_impact" in result
     assert set(result["reranker_impact"].keys()) == {"before", "after"}
-    assert set(result["reranker_impact"]["before"].keys()) == {"retrieval_quality", "usage_quality", "gap"}
+    assert set(result["reranker_impact"]["before"].keys()) == {"retrieval_quality", "usage_quality", "answer_quality", "gap"}
     assert "retrieval_metrics" in result
     assert set(result["retrieval_metrics"].keys()) == {"recall_at_k", "mrr", "hit_rate", "ndcg"}
 
@@ -1071,6 +1071,15 @@ def test_simulate_rag_pipeline_reranks_with_query(monkeypatch):
             return __import__("numpy").array(vectors, dtype=float)
 
     monkeypatch.setattr(chunk_simulator, "_get_sentence_embedding_model", lambda: DummyModel())
+
+    def fake_decode_tokens(tokens, tokenizer_name):
+        if tokens == [1, 2]:
+            return "cats"
+        if tokens == [3, 4]:
+            return "dogs"
+        return ""
+
+    monkeypatch.setattr(chunk_simulator, "decode_tokens", fake_decode_tokens)
 
     result = simulate_rag_pipeline(
         token_ids=[1, 2, 3, 4],

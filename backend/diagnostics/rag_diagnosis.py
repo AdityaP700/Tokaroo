@@ -40,7 +40,7 @@ def generate_rag_diagnosis(
     # Check 1: Token Redundancy (Highest Priority)
     if overlap_ratio > 0.4:
         issues.append({"type": "high_token_redundancy", "severity": "high"})
-        impact = "high"
+        impact = "medium"
         confidence = 0.95
         short_summary = "Excessive overlap causing major token duplication."
         actionable_steps.extend(
@@ -76,7 +76,11 @@ def generate_rag_diagnosis(
             issues.append({"type": "semantic_fragmentation", "severity": "high"})
     # Check 3: Context Window Truncation
     # FIX: Only trigger on explicit error or when chunks were actually dropped
-    if rag_data.get("error") == "context_window_overflow" or (chunks_in_prompt < len(chunks)):
+    if (
+        rag_data.get("error") == "context_window_overflow"
+        or (chunks and chunks_in_prompt < len(chunks))
+        or (not chunks and total_chunks_created > chunks_in_prompt)
+    ):
         issues.append({"type": "context_window_overflow", "severity": "critical"})
         impact = "critical"
         confidence = 0.99
@@ -193,6 +197,7 @@ def generate_rag_diagnosis(
         c
         for c in chunks
         if c.get("relevance_score", c.get("similarity_score", 0.0)) > 0.8
+        and c.get("keyword_score") is not None
         and c.get("keyword_score", 0.0) < 0.4
     ]
     if semantic_mismatch:
@@ -213,6 +218,7 @@ def generate_rag_diagnosis(
         c
         for c in chunks
         if c.get("relevance_score", 0.0) > 0.7
+        and c.get("keyword_score") is not None
         and c.get("keyword_score", 0.0) < 0.2
         and c.get("used_by_model") is True
     ]
