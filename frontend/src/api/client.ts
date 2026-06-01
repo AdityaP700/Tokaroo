@@ -46,6 +46,9 @@ export type RagResponse = {
   total_chunks_created: number;
   chunks_in_prompt: number;
   extra_tokens_due_to_overlap: number;
+  budget_percent?: number | null;
+  budget_token_limit?: number | null;
+  budget_metrics?: Record<string, number> | null;
   error: string | null;
   retrieval_mode?: string | null;
   reranked?: boolean | null;

@@ -11,6 +11,7 @@ export const RagView: React.FC = () => {
   const [chunkSize, setChunkSize] = useState(70);
   const [overlap, setOverlap] = useState(12);
   const [topK, setTopK] = useState(5);
+  const [budgetPercent, setBudgetPercent] = useState(50);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RagResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,8 +25,9 @@ export const RagView: React.FC = () => {
     top_k: topK,
     final_k: Math.min(4, topK),
     retrieval_strategy: 'relevance_sorted',
+    budget_percent: budgetPercent,
     auto_optimize: true,
-  }), [text, query, chunkSize, overlap, topK]);
+  }), [text, query, chunkSize, overlap, topK, budgetPercent]);
 
   const runPipeline = async () => {
     setLoading(true);
@@ -86,6 +88,11 @@ export const RagView: React.FC = () => {
               </div>
             ))}
           </div>
+          <div className="mini-control">
+            <span>Budget</span>
+            <strong>{budgetPercent}%</strong>
+            <input type="range" min={10} max={100} step={5} value={budgetPercent} onChange={(e) => setBudgetPercent(Number(e.target.value))} />
+          </div>
           <button className="btn-primary" onClick={runPipeline} disabled={loading || !text.trim()}>
             {loading ? 'Running pipeline' : 'Run RAG Pipeline'}
           </button>
@@ -98,6 +105,7 @@ export const RagView: React.FC = () => {
               { icon: Layers, label: 'Total chunks', value: result?.total_chunks_created ?? '-' },
               { icon: SearchCheck, label: 'Reranked', value: result ? String(result.reranked) : '-' },
               { icon: Activity, label: 'Health', value: result?.optimization.health_score ?? '-' },
+              { icon: Sparkles, label: 'Budget', value: result?.budget_percent ? `${result.budget_percent}%` : `${budgetPercent}%` },
             ].map(({ icon: Icon, label, value }) => (
               <div key={label} className="metric-tile">
                 <Icon size={16} />

@@ -488,16 +488,53 @@ def test_simulate_rag_pipeline_adds_chunk_traceability(monkeypatch):
     assert result["chunks"][2]["lost_reason"] in {"low_relevance", "lost_in_middle", "position_bias"}
     # New metrics: retrieval vs usage gap, ignored relevant detection, attention waste
     assert "retrieval_analysis" in result
-    assert set(result["retrieval_analysis"].keys()) == {"retrieval_quality", "usage_quality", "answer_quality", "gap"}
+    assert set(result["retrieval_analysis"].keys()) == {"retrieval_quality", "usage_quality", "answer_quality", "coverage", "gap"}
     assert "ignored_relevant_chunks" in result
     assert isinstance(result["ignored_relevant_chunks"], list)
     assert "attention_waste" in result
     assert isinstance(result["attention_waste"], float)
     assert "reranker_impact" in result
     assert set(result["reranker_impact"].keys()) == {"before", "after"}
-    assert set(result["reranker_impact"]["before"].keys()) == {"retrieval_quality", "usage_quality", "answer_quality", "gap"}
+    assert set(result["reranker_impact"]["before"].keys()) == {"retrieval_quality", "usage_quality", "answer_quality", "coverage", "gap"}
     assert "retrieval_metrics" in result
     assert set(result["retrieval_metrics"].keys()) == {"recall_at_k", "mrr", "hit_rate", "ndcg"}
+
+
+def test_simulate_rag_pipeline_applies_budget_cap(monkeypatch):
+    def fake_decode_tokens(tokens, tokenizer_name):
+        if tokens == [1]:
+            return "cats"
+        if tokens == [2]:
+            return "filler"
+        if tokens == [3]:
+            return "mid filler"
+        if tokens == [4]:
+            return "cats again"
+        return " ".join(str(token) for token in tokens)
+
+    monkeypatch.setattr(chunk_simulator, "decode_tokens", fake_decode_tokens)
+
+    result = simulate_rag_pipeline(
+        token_ids=[1, 2, 3, 4],
+        chunk_size=1,
+        query="cats",
+        overlap=0,
+        tokenizer_name="cl100k_base",
+        top_k=4,
+        final_k=4,
+        retrieval_strategy="relevance_sorted",
+        context_window=2,
+        budget_percent=50,
+        original_text="cats filler mid filler cats again",
+    )
+
+    assert result["budget_percent"] == 50
+    assert result["budget_token_limit"] == 1
+    assert result["chunks_in_prompt"] == 1
+    assert result["budget_metrics"]["budget_percent"] == 50.0
+    assert result["budget_metrics"]["selected_chunk_count"] == 1.0
+    assert result["budget_metrics"]["selected_token_count"] == 1.0
+    assert 0.0 <= result["budget_metrics"]["coverage"] <= 1.0
 
 
 def test_simulate_rag_pipeline_reports_gold_metrics(monkeypatch):
@@ -895,10 +932,21 @@ def test_simulate_rag_endpoint_returns_structured_optimization(monkeypatch):
             "total_chunks_created": 4,
             "chunks_in_prompt": 4,
             "extra_tokens_due_to_overlap": 20,
+            "budget_percent": 50,
+            "budget_token_limit": 64,
+            "budget_metrics": {
+                "budget_percent": 50.0,
+                "budget_token_limit": 64.0,
+                "selected_chunk_count": 4.0,
+                "selected_token_count": 120.0,
+                "retrieval_quality": 0.91,
+                "answer_quality": 0.9,
+                "coverage": 0.8,
+            },
             "retrieval_mode": "hybrid",
             "reranked": True,
             "rerank_scores": [0.91],
-            "retrieval_analysis": {"retrieval_quality": 0.91, "usage_quality": 0.91, "gap": 0.0},
+            "retrieval_analysis": {"retrieval_quality": 0.91, "usage_quality": 0.91, "answer_quality": 0.91, "coverage": 0.8, "gap": 0.0},
             "ignored_relevant_chunks": [],
             "attention_waste": 0.0,
             "chunks": [
@@ -938,6 +986,9 @@ def test_simulate_rag_endpoint_returns_structured_optimization(monkeypatch):
     assert data["retrieval_mode"] == "hybrid"
     assert data["reranked"] is True
     assert isinstance(data["rerank_scores"], list)
+    assert data["budget_percent"] == 50
+    assert data["budget_token_limit"] == 64
+    assert data["budget_metrics"]["coverage"] == 0.8
     assert "retrieval_analysis" in data
     assert "ignored_relevant_chunks" in data
     assert "attention_waste" in data

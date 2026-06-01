@@ -43,6 +43,7 @@ def simulate_rag_pipeline(
     top_k: int,
     retrieval_strategy: str,
     context_window: int,
+    budget_percent: int | None = 100,
     final_k: int | None = None,
     original_text: str | None = None,
     query_transformer: str | None = "baseline",
@@ -59,6 +60,9 @@ def simulate_rag_pipeline(
 
     if chunk_size <= overlap:
         raise ValueError("Chunk size must be strictly greater than overlap.")
+
+    normalized_budget_percent = 100 if budget_percent is None else max(1, min(100, int(budget_percent)))
+    budget_token_limit = max(1, int(context_window * normalized_budget_percent / 100))
 
     def _target_position_index(position: int | str | None, prompt_size: int) -> int:
         if prompt_size <= 1:
@@ -390,6 +394,23 @@ def simulate_rag_pipeline(
     rerank_scores = [round(chunk.get("rerank_score", 0.0), 4) for chunk in diverse_chunks]
     reranked = True
 
+    budgeted_chunks = diverse_chunks
+    budgeted_token_count = sum(int(chunk.get("token_count", 0)) for chunk in diverse_chunks)
+    if budget_percent is not None:
+        budgeted_chunks = []
+        budgeted_token_count = 0
+        for chunk in diverse_chunks:
+            chunk_tokens = int(chunk.get("token_count", 0))
+            if budgeted_chunks and budgeted_token_count + chunk_tokens > budget_token_limit:
+                break
+            if not budgeted_chunks and chunk_tokens > budget_token_limit:
+                break
+            budgeted_chunks.append(chunk)
+            budgeted_token_count += chunk_tokens
+
+        diverse_chunks = budgeted_chunks
+        rerank_scores = [round(chunk.get("rerank_score", 0.0), 4) for chunk in diverse_chunks]
+
     controlled_context = _build_controlled_context()
     if controlled_context is not None:
         final_limit = len(controlled_context)
@@ -399,6 +420,22 @@ def simulate_rag_pipeline(
         # reorder prompt placement to measure placement impact independently of retrieval
         final_candidates = diverse_chunks
         inject_order = build_prompt(final_candidates, context_placement_strategy or "reverse", random_seed)
+
+    if budget_percent is not None:
+        budgeted_final_candidates = []
+        budgeted_final_tokens = 0
+        for chunk in final_candidates:
+            chunk_tokens = int(chunk.get("token_count", 0))
+            if budgeted_final_candidates and budgeted_final_tokens + chunk_tokens > budget_token_limit:
+                break
+            if not budgeted_final_candidates and chunk_tokens > budget_token_limit:
+                break
+            budgeted_final_candidates.append(chunk)
+            budgeted_final_tokens += chunk_tokens
+
+        final_candidates = budgeted_final_candidates
+        inject_order = budgeted_final_candidates
+        final_limit = len(budgeted_final_candidates)
 
     def _build_valid_from_candidates(candidate_chunks: list[dict]) -> list[dict]:
         # operate on copies to avoid mutating shared chunk dicts
@@ -495,6 +532,50 @@ def simulate_rag_pipeline(
             retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]
         ignored_relevant_chunks = detect_ignored_relevant([])
         attention_waste = compute_attention_waste([])
+        budget_metrics = None
+        if budget_percent is not None:
+            budget_metrics = {
+                "budget_percent": float(normalized_budget_percent),
+                "budget_token_limit": float(budget_token_limit),
+                "selected_chunk_count": 0.0,
+                "selected_token_count": 0.0,
+                "retrieval_quality": retrieval_analysis.get("retrieval_quality", 0.0),
+                "answer_quality": retrieval_analysis.get("answer_quality", 0.0),
+                "coverage": retrieval_analysis.get("coverage", 0.0),
+            }
+
+        if budget_percent is None:
+            return {
+                "total_original_tokens": total_tokens,
+                "total_chunks_created": total_chunks_created,
+                "chunks_in_prompt": 0,
+                "extra_tokens_due_to_overlap": extra_tokens,
+                "chunks": [],
+                "retrieval_debug": retrieval_debug,
+                "error": "context_window_overflow",
+                "attention_curve": [],
+                "retrieval_mode": retrieval_mode,
+                "query_strategy": query_transformer,
+                "query_variants": [variant.text for variant in variants] if total_chunks_created > 0 else [],
+                "hyde_document": hyde_document,
+                "hyde_length_tokens": hyde_length_tokens,
+                "hyde_generated_terms": hyde_generated_terms,
+                "variant_retrievals": variant_retrievals,
+                "total_retrieved_chunks": total_retrieved_chunks,
+                "unique_retrieved_chunks": unique_retrieved_chunks,
+                "retrieval_diversity": retrieval_diversity,
+                "retrieval_overlap": retrieval_overlap,
+                "retrieval_metrics": retrieval_metrics,
+                "retrieval_metrics_gold": retrieval_metrics_gold,
+                "reranked": reranked,
+                "rerank_scores": rerank_scores,
+                "retrieval_analysis": retrieval_analysis,
+                "answer_evaluation": answer_evaluation,
+                "ignored_relevant_chunks": ignored_relevant_chunks,
+                "attention_waste": attention_waste,
+                "reranker_impact": reranker_impact,
+                "context_placement_strategy": context_placement_strategy or "reverse",
+            }
 
         return {
             "total_original_tokens": total_tokens,
@@ -503,7 +584,9 @@ def simulate_rag_pipeline(
             "extra_tokens_due_to_overlap": extra_tokens,
             "chunks": [],
             "retrieval_debug": retrieval_debug,
-            "error": "context_window_overflow",
+            "budget_percent": normalized_budget_percent,
+            "budget_token_limit": budget_token_limit,
+            "budget_metrics": budget_metrics,
             "attention_curve": [],
             "retrieval_mode": retrieval_mode,
             "query_strategy": query_transformer,
@@ -616,6 +699,9 @@ def simulate_rag_pipeline(
                 "extra_tokens_due_to_overlap": extra_tokens,
                 "chunks": valid_chunks,
                 "retrieval_debug": retrieval_debug,
+                "budget_percent": normalized_budget_percent,
+                "budget_token_limit": budget_token_limit,
+                "budget_metrics": budget_metrics,
                 "attention_curve": [round(w, 3) for w in positional_weights],
                 "retrieval_mode": retrieval_mode,
                 "query_strategy": query_transformer,
@@ -660,6 +746,17 @@ def simulate_rag_pipeline(
         retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]
     ignored_relevant_chunks = detect_ignored_relevant(valid_chunks)
     attention_waste = compute_attention_waste(valid_chunks)
+    budget_metrics = None
+    if budget_percent is not None:
+        budget_metrics = {
+            "budget_percent": float(normalized_budget_percent),
+            "budget_token_limit": float(budget_token_limit),
+            "selected_chunk_count": float(len(valid_chunks)),
+            "selected_token_count": float(sum(chunk.get("token_count", 0) for chunk in valid_chunks)),
+            "retrieval_quality": retrieval_analysis.get("retrieval_quality", 0.0),
+            "answer_quality": retrieval_analysis.get("answer_quality", 0.0),
+            "coverage": retrieval_analysis.get("coverage", 0.0),
+        }
 
     return {
         "total_original_tokens": total_tokens,
@@ -668,6 +765,9 @@ def simulate_rag_pipeline(
         "extra_tokens_due_to_overlap": extra_tokens,
         "chunks": valid_chunks,
         "retrieval_debug": retrieval_debug,
+        "budget_percent": normalized_budget_percent,
+        "budget_token_limit": budget_token_limit,
+        "budget_metrics": budget_metrics,
         "attention_curve": [round(w, 3) for w in positional_weights],
         "retrieval_mode": retrieval_mode,
         "query_strategy": query_transformer,

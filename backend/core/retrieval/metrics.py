@@ -7,6 +7,7 @@ def compute_retrieval_usage_gap(chunks: list[dict]) -> dict:
             "retrieval_quality": 0.0,
             "usage_quality": 0.0,
             "answer_quality": 0.0,
+            "coverage": 0.0,
             "gap": 0.0,
         }
 
@@ -46,6 +47,7 @@ def compute_retrieval_usage_gap(chunks: list[dict]) -> dict:
         "retrieval_quality": round(retrieval_quality, 3),
         "usage_quality": round(usage_quality, 3),
         "answer_quality": round(answer_quality, 3),
+        "coverage": round(relevant_coverage, 3),
         "gap": round(gap, 3),
     }
 
