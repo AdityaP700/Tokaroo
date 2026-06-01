@@ -529,11 +529,11 @@ def test_simulate_rag_pipeline_applies_budget_cap(monkeypatch):
     )
 
     assert result["budget_percent"] == 50
-    assert result["budget_token_limit"] == 1
-    assert result["chunks_in_prompt"] == 1
+    assert result["budget_token_limit"] == 2
+    assert result["chunks_in_prompt"] == 2
     assert result["budget_metrics"]["budget_percent"] == 50.0
-    assert result["budget_metrics"]["selected_chunk_count"] == 1.0
-    assert result["budget_metrics"]["selected_token_count"] == 1.0
+    assert result["budget_metrics"]["selected_chunk_count"] == 2.0
+    assert result["budget_metrics"]["selected_token_count"] == 2.0
     assert 0.0 <= result["budget_metrics"]["coverage"] <= 1.0
 
 

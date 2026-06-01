@@ -1,7 +1,7 @@
 import math
 
 
-def compute_retrieval_usage_gap(chunks: list[dict]) -> dict:
+def compute_retrieval_usage_gap(chunks: list[dict], total_relevant_count: int | None = None) -> dict:
     if not chunks:
         return {
             "retrieval_quality": 0.0,
@@ -40,7 +40,9 @@ def compute_retrieval_usage_gap(chunks: list[dict]) -> dict:
         if c.get("rerank_score", c.get("similarity_score", 0.0)) >= relevance_threshold
         and c.get("attention_weight", 0.0) >= 0.3
     ]
-    relevant_coverage = len(used_relevant_chunks) / len(relevant_chunks) if relevant_chunks else 0.0
+    
+    denominator = total_relevant_count if total_relevant_count is not None else len(relevant_chunks)
+    relevant_coverage = len(used_relevant_chunks) / denominator if denominator > 0 else 0.0
     answer_quality = (0.45 * usage_quality) + (0.35 * attended_relevance) + (0.2 * relevant_coverage)
 
     return {

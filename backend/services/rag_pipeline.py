@@ -62,7 +62,8 @@ def simulate_rag_pipeline(
         raise ValueError("Chunk size must be strictly greater than overlap.")
 
     normalized_budget_percent = 100 if budget_percent is None else max(1, min(100, int(budget_percent)))
-    budget_token_limit = max(1, int(context_window * normalized_budget_percent / 100))
+    # Initial limit based on context window; will be refined if budget_percent is active
+    budget_token_limit = context_window
 
     def _target_position_index(position: int | str | None, prompt_size: int) -> int:
         if prompt_size <= 1:
@@ -394,8 +395,19 @@ def simulate_rag_pipeline(
     rerank_scores = [round(chunk.get("rerank_score", 0.0), 4) for chunk in diverse_chunks]
     reranked = True
 
+    # Calculate global relevance baseline for coverage calculations before budgeting prunes the results
+    all_retrieved_scores = [c.get("rerank_score", 0.0) for c in diverse_chunks]
+    global_retrieval_avg = sum(all_retrieved_scores) / len(all_retrieved_scores) if all_retrieved_scores else 0.0
+    global_relevance_thresh = max(0.3, global_retrieval_avg * 0.8)
+    total_relevant_retrieved = sum(1 for s in all_retrieved_scores if s >= global_relevance_thresh)
+
+    pre_budget_token_count = sum(int(chunk.get("token_count", 0)) for chunk in diverse_chunks)
+    if budget_percent is not None:
+        # BUDGET FIX: Base limit on the retrieved pool tokens rather than the model window
+        budget_token_limit = max(1, int(pre_budget_token_count * normalized_budget_percent / 100))
+
     budgeted_chunks = diverse_chunks
-    budgeted_token_count = sum(int(chunk.get("token_count", 0)) for chunk in diverse_chunks)
+    budgeted_token_count = pre_budget_token_count
     if budget_percent is not None:
         budgeted_chunks = []
         budgeted_token_count = 0
@@ -516,8 +528,8 @@ def simulate_rag_pipeline(
 
     # compute reranker impact metrics
     reranker_impact = {
-        "before": compute_retrieval_usage_gap(before_valid),
-        "after": compute_retrieval_usage_gap(after_valid),
+        "before": compute_retrieval_usage_gap(before_valid, total_relevant_retrieved),
+        "after": compute_retrieval_usage_gap(after_valid, total_relevant_retrieved),
     }
 
     # use the after_valid set as the canonical valid_chunks for downstream analysis
@@ -526,7 +538,7 @@ def simulate_rag_pipeline(
     # 4. Prompt Injection Phase (Positional Attention)
     if not valid_chunks:
         # compute empty metrics
-        retrieval_analysis = compute_retrieval_usage_gap([])
+        retrieval_analysis = compute_retrieval_usage_gap([], total_relevant_retrieved)
         answer_evaluation = _score_answer_quality([])
         if answer_evaluation:
             retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]
@@ -685,12 +697,24 @@ def simulate_rag_pipeline(
                 else:
                     chunk["risk_level"] = "safe (high retention)"
 
-            retrieval_analysis = compute_retrieval_usage_gap(valid_chunks)
+            retrieval_analysis = compute_retrieval_usage_gap(valid_chunks, total_relevant_retrieved)
             answer_evaluation = _score_answer_quality(valid_chunks)
             if answer_evaluation:
                 retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]
             ignored_relevant_chunks = detect_ignored_relevant(valid_chunks)
             attention_waste = compute_attention_waste(valid_chunks)
+            
+            budget_metrics = None
+            if budget_percent is not None:
+                budget_metrics = {
+                    "budget_percent": float(normalized_budget_percent),
+                    "budget_token_limit": float(budget_token_limit),
+                    "selected_chunk_count": float(len(valid_chunks)),
+                    "selected_token_count": float(sum(chunk.get("token_count", 0) for chunk in valid_chunks)),
+                    "retrieval_quality": retrieval_analysis.get("retrieval_quality", 0.0),
+                    "answer_quality": retrieval_analysis.get("answer_quality", 0.0),
+                    "coverage": retrieval_analysis.get("coverage", 0.0),
+                }
 
             return {
                 "total_original_tokens": total_tokens,
@@ -740,7 +764,7 @@ def simulate_rag_pipeline(
             else:
                 chunk["risk_level"] = "safe (high retention)"
 
-    retrieval_analysis = compute_retrieval_usage_gap(valid_chunks)
+    retrieval_analysis = compute_retrieval_usage_gap(valid_chunks, total_relevant_retrieved)
     answer_evaluation = _score_answer_quality(valid_chunks)
     if answer_evaluation:
         retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]

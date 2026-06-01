@@ -53,7 +53,7 @@ class RagChunkRequest(BaseModel):
     query: Optional[str] = None
     chunk_size: int
     overlap: int
-    budget_percent: Optional[int] = Field(default=None, ge=1, le=100, description="Token budget as a percent of the model context window")
+    budget_percent: Optional[int] = Field(default=None, ge=1, le=100, description="Token budget as a percent of the retrieved context tokens")
     top_k: Optional[int] = Field(default=5, description="Number of chunks retrieved by Vector DB")
     final_k: Optional[int] = Field(default=4, ge=1, description="Number of chunks kept after reranking")
     retrieval_strategy: Optional[str] = Field(default="relevance_sorted", description="'sequential', 'relevance_sorted', or 'rrf_fused'")
