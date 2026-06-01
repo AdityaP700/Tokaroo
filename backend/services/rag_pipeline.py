@@ -54,6 +54,7 @@ def simulate_rag_pipeline(
     gold_chunk_id: int | None = None,
     answer_chunk_position: int | str | None = None,
     gold_answer: str | None = None,
+    reranker_enabled: bool = True,
 ) -> dict:
     if overlap > chunk_size * 0.5:
         overlap = int(chunk_size * 0.2)
@@ -314,10 +315,18 @@ def simulate_rag_pipeline(
 
     retrieval_debug = [copy.deepcopy(chunk) for chunk in all_chunks]
 
-    # Initial retrieval, then rerank
+    # Initial retrieval, then optionally rerank
     retrieved_chunks = all_chunks[:top_k]
     rerank_query = query or original_text or ""
-    reranked_chunks = rerank_chunks(rerank_query, retrieved_chunks)
+    
+    if reranker_enabled:
+        reranked_chunks = rerank_chunks(rerank_query, retrieved_chunks)
+    else:
+        # If reranking disabled, use retrieved chunks as-is (treat retrieval score as rerank score)
+        reranked_chunks = retrieved_chunks
+        for chunk in reranked_chunks:
+            chunk["rerank_score"] = chunk.get("similarity_score", 0.0)
+    
     retrieval_metrics = compute_retrieval_metrics(all_chunks, reranked_chunks, top_k)
     retrieval_metrics_gold = None
     if relevance_labels:

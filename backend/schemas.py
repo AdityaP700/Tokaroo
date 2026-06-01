@@ -65,6 +65,7 @@ class RagChunkRequest(BaseModel):
     query_transformer: Optional[str] = Field(default="baseline", description="'baseline', 'multi_query', or 'hyde'")
     query_variants_max: Optional[int] = Field(default=5, ge=1, le=10, description="Max rewritten queries to emit")
     auto_optimize: Optional[bool] = Field(default=True, description="Enable 2-pass adaptive optimization")
+    reranker_enabled: Optional[bool] = Field(default=True, description="Enable cross-encoder reranking")
     relevance_labels: Optional[Dict[int, int]] = Field(
         default=None,
         description="Gold labels by chunk_index. 0 = irrelevant, 1-3 = graded relevance"
@@ -75,6 +76,32 @@ class RagChunkRequest(BaseModel):
         description="Controlled 1-based prompt position for the gold chunk, or 'first', 'middle', 'last'",
     )
     gold_answer: Optional[str] = Field(default=None, description="Reference answer used for answer-quality scoring")
+
+class RerankerBenchmarkRequest(BaseModel):
+    text: str
+    model: str
+    query_count: Optional[int] = Field(default=10, ge=1, le=50, description="Number of queries to test")
+    chunk_size: Optional[int] = Field(default=300, ge=100, description="Chunk size for simulation")
+    overlap: Optional[int] = Field(default=50, ge=0, description="Chunk overlap")
+    top_k: Optional[int] = Field(default=5, ge=1, description="Top-K for retrieval")
+    final_k: Optional[int] = Field(default=4, ge=1, description="Final chunks after reranking")
+    retrieval_strategy: Optional[str] = Field(default="relevance_sorted")
+    query_transformer: Optional[str] = Field(default="baseline")
+
+class RerankerMetricsResult(BaseModel):
+    query: str
+    metrics_without_reranker: dict
+    metrics_with_reranker: dict
+    improvement: dict
+
+class RerankerBenchmarkResponse(BaseModel):
+    total_queries_tested: int
+    model: str
+    strategy: str
+    aggregate_metrics: dict
+    per_query_results: List[RerankerMetricsResult]
+    summary: dict
+
 class BenchmarkRequest(BaseModel):
     queries: List[str]
     text: str

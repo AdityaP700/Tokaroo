@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 from dotenv import load_dotenv
-from schemas import SimulateRequest, SimulateResponse, CostEstimate,CompareRequest, CompareResponse,ModelComparisonResult,RagChunkRequest, RagChunkResponse, BenchmarkRequest
+from schemas import SimulateRequest, SimulateResponse, CostEstimate,CompareRequest, CompareResponse,ModelComparisonResult,RagChunkRequest, RagChunkResponse, BenchmarkRequest, RerankerBenchmarkRequest, RerankerBenchmarkResponse, RerankerMetricsResult
 from model_config import SUPPORTED_MODELS
 from tokenizer_engine import get_tokens
 from context_simulator import calculate_attention_weights
@@ -224,6 +224,7 @@ def simulate_rag(request: RagChunkRequest):
         gold_chunk_id=request.gold_chunk_id,
         answer_chunk_position=request.answer_chunk_position,
         gold_answer=request.gold_answer,
+        reranker_enabled=request.reranker_enabled,
     )
 
     # ---------------------------------------------------------
@@ -260,6 +261,7 @@ def simulate_rag(request: RagChunkRequest):
             gold_chunk_id=request.gold_chunk_id,
             answer_chunk_position=request.answer_chunk_position,
             gold_answer=request.gold_answer,
+            reranker_enabled=request.reranker_enabled,
         )
         # Re-analyze with the new data
         insights = generate_rag_diagnosis(rag_data, new_top_k, retrieval_strategy, new_chunk_size)
@@ -299,6 +301,166 @@ def simulate_rag(request: RagChunkRequest):
         retrieval_debug=rag_data.get("retrieval_debug"),
         optimization=insights,
         chunks=_response_chunks(rag_data["chunks"])
+    )
+
+# =========================================================================
+# RERANKER IMPACT BENCHMARK ENDPOINT
+# =========================================================================
+
+def _generate_test_queries(text: str, count: int) -> list[str]:
+    """Generate synthetic test queries from corpus"""
+    # Simple strategy: use sentences/phrases from text as queries
+    sentences = text.split('.')[:count]
+    queries = [s.strip() for s in sentences if s.strip() and len(s.strip()) > 10]
+    return queries[:count]
+
+@app.post("/benchmark-reranker", response_model=RerankerBenchmarkResponse)
+def benchmark_reranker_impact(request: RerankerBenchmarkRequest):
+    """
+    Systematically test reranker impact across multiple queries.
+    Measures: MRR, NDCG, Answer Quality, Coverage, Retrieval Gap
+    Returns: Aggregate metrics and per-query improvements
+    """
+    if request.model not in SUPPORTED_MODELS:
+        raise HTTPException(status_code=404, detail="Model not supported.")
+    
+    config = SUPPORTED_MODELS[request.model]
+    token_ids = get_tokens(request.text, config["tokenizer"])
+    
+    # Generate test queries
+    test_queries = _generate_test_queries(request.text, request.query_count)
+    if not test_queries:
+        raise HTTPException(status_code=400, detail="Could not generate test queries from text")
+    
+    per_query_results = []
+    all_metrics_without_reranker = {"mrr": [], "ndcg": [], "answer_quality": [], "coverage": [], "gap": []}
+    all_metrics_with_reranker = {"mrr": [], "ndcg": [], "answer_quality": [], "coverage": [], "gap": []}
+    
+    for query in test_queries:
+        # Run without reranker
+        result_without = run_rag_simulation(
+            token_ids=token_ids,
+            chunk_size=request.chunk_size,
+            query=query,
+            overlap=request.overlap,
+            tokenizer_name=config["tokenizer"],
+            top_k=request.top_k,
+            final_k=request.final_k,
+            retrieval_strategy=request.retrieval_strategy,
+            context_window=config["context_window"],
+            original_text=request.text,
+            query_transformer=request.query_transformer,
+            reranker_enabled=False,
+        )
+        
+        # Run with reranker
+        result_with = run_rag_simulation(
+            token_ids=token_ids,
+            chunk_size=request.chunk_size,
+            query=query,
+            overlap=request.overlap,
+            tokenizer_name=config["tokenizer"],
+            top_k=request.top_k,
+            final_k=request.final_k,
+            retrieval_strategy=request.retrieval_strategy,
+            context_window=config["context_window"],
+            original_text=request.text,
+            query_transformer=request.query_transformer,
+            reranker_enabled=True,
+        )
+        
+        # Extract metrics
+        metrics_without = {
+            "mrr": result_without.get("retrieval_metrics", {}).get("mrr", 0.0),
+            "ndcg": result_without.get("retrieval_metrics", {}).get("ndcg", 0.0),
+            "answer_quality": result_without.get("retrieval_analysis", {}).get("answer_quality", 0.0),
+            "coverage": result_without.get("retrieval_analysis", {}).get("coverage", 0.0),
+            "gap": result_without.get("retrieval_analysis", {}).get("gap", 0.0),
+        }
+        
+        metrics_with = {
+            "mrr": result_with.get("retrieval_metrics", {}).get("mrr", 0.0),
+            "ndcg": result_with.get("retrieval_metrics", {}).get("ndcg", 0.0),
+            "answer_quality": result_with.get("retrieval_analysis", {}).get("answer_quality", 0.0),
+            "coverage": result_with.get("retrieval_analysis", {}).get("coverage", 0.0),
+            "gap": result_with.get("retrieval_analysis", {}).get("gap", 0.0),
+        }
+        
+        # Calculate improvements
+        improvement = {
+            "mrr_pct": round(((metrics_with["mrr"] - metrics_without["mrr"]) / (metrics_without["mrr"] + 1e-6)) * 100, 2),
+            "ndcg_pct": round(((metrics_with["ndcg"] - metrics_without["ndcg"]) / (metrics_without["ndcg"] + 1e-6)) * 100, 2),
+            "answer_quality_pct": round(((metrics_with["answer_quality"] - metrics_without["answer_quality"]) / (metrics_without["answer_quality"] + 1e-6)) * 100, 2),
+            "coverage_pct": round(((metrics_with["coverage"] - metrics_without["coverage"]) / (metrics_without["coverage"] + 1e-6)) * 100, 2),
+            "gap_reduction_pct": round(((metrics_without["gap"] - metrics_with["gap"]) / (metrics_without["gap"] + 1e-6)) * 100, 2),
+        }
+        
+        # Collect for aggregation
+        for key in all_metrics_without_reranker:
+            all_metrics_without_reranker[key].append(metrics_without[key])
+            all_metrics_with_reranker[key].append(metrics_with[key])
+        
+        per_query_results.append(
+            RerankerMetricsResult(
+                query=query,
+                metrics_without_reranker=metrics_without,
+                metrics_with_reranker=metrics_with,
+                improvement=improvement
+            )
+        )
+    
+    # Calculate aggregate metrics
+    def avg_list(lst):
+        return round(sum(lst) / len(lst), 4) if lst else 0.0
+    
+    aggregate_metrics = {
+        "without_reranker": {
+            "avg_mrr": avg_list(all_metrics_without_reranker["mrr"]),
+            "avg_ndcg": avg_list(all_metrics_without_reranker["ndcg"]),
+            "avg_answer_quality": avg_list(all_metrics_without_reranker["answer_quality"]),
+            "avg_coverage": avg_list(all_metrics_without_reranker["coverage"]),
+            "avg_gap": avg_list(all_metrics_without_reranker["gap"]),
+        },
+        "with_reranker": {
+            "avg_mrr": avg_list(all_metrics_with_reranker["mrr"]),
+            "avg_ndcg": avg_list(all_metrics_with_reranker["ndcg"]),
+            "avg_answer_quality": avg_list(all_metrics_with_reranker["answer_quality"]),
+            "avg_coverage": avg_list(all_metrics_with_reranker["coverage"]),
+            "avg_gap": avg_list(all_metrics_with_reranker["gap"]),
+        },
+    }
+    
+    # Calculate overall improvements
+    summary = {
+        "reranking_improved_ndcg_by_pct": round(
+            ((aggregate_metrics["with_reranker"]["avg_ndcg"] - aggregate_metrics["without_reranker"]["avg_ndcg"]) / 
+             (aggregate_metrics["without_reranker"]["avg_ndcg"] + 1e-6)) * 100, 2
+        ),
+        "reranking_improved_answer_quality_by_pct": round(
+            ((aggregate_metrics["with_reranker"]["avg_answer_quality"] - aggregate_metrics["without_reranker"]["avg_answer_quality"]) / 
+             (aggregate_metrics["without_reranker"]["avg_answer_quality"] + 1e-6)) * 100, 2
+        ),
+        "reranking_reduced_retrieval_gap_by_pct": round(
+            ((aggregate_metrics["without_reranker"]["avg_gap"] - aggregate_metrics["with_reranker"]["avg_gap"]) / 
+             (aggregate_metrics["without_reranker"]["avg_gap"] + 1e-6)) * 100, 2
+        ),
+        "improved_mrr_by_pct": round(
+            ((aggregate_metrics["with_reranker"]["avg_mrr"] - aggregate_metrics["without_reranker"]["avg_mrr"]) / 
+             (aggregate_metrics["without_reranker"]["avg_mrr"] + 1e-6)) * 100, 2
+        ),
+        "improved_coverage_by_pct": round(
+            ((aggregate_metrics["with_reranker"]["avg_coverage"] - aggregate_metrics["without_reranker"]["avg_coverage"]) / 
+             (aggregate_metrics["without_reranker"]["avg_coverage"] + 1e-6)) * 100, 2
+        ),
+    }
+    
+    return RerankerBenchmarkResponse(
+        total_queries_tested=len(test_queries),
+        model=request.model,
+        strategy=request.retrieval_strategy,
+        aggregate_metrics=aggregate_metrics,
+        per_query_results=per_query_results,
+        summary=summary
     )
 
 # =========================================================================
