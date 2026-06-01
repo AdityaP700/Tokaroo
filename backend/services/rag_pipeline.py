@@ -546,14 +546,17 @@ def simulate_rag_pipeline(
         attention_waste = compute_attention_waste([])
         budget_metrics = None
         if budget_percent is not None:
+            sel_tokens = 0.0
+            ans_quality = retrieval_analysis.get("answer_quality", 0.0)
             budget_metrics = {
                 "budget_percent": float(normalized_budget_percent),
                 "budget_token_limit": float(budget_token_limit),
                 "selected_chunk_count": 0.0,
                 "selected_token_count": 0.0,
                 "retrieval_quality": retrieval_analysis.get("retrieval_quality", 0.0),
-                "answer_quality": retrieval_analysis.get("answer_quality", 0.0),
+                "answer_quality": ans_quality,
                 "coverage": retrieval_analysis.get("coverage", 0.0),
+                "quality_per_token": 0.0,
             }
 
         if budget_percent is None:
@@ -706,14 +709,17 @@ def simulate_rag_pipeline(
             
             budget_metrics = None
             if budget_percent is not None:
+                sel_tokens = float(sum(chunk.get("token_count", 0) for chunk in valid_chunks))
+                ans_quality = retrieval_analysis.get("answer_quality", 0.0)
                 budget_metrics = {
                     "budget_percent": float(normalized_budget_percent),
                     "budget_token_limit": float(budget_token_limit),
                     "selected_chunk_count": float(len(valid_chunks)),
-                    "selected_token_count": float(sum(chunk.get("token_count", 0) for chunk in valid_chunks)),
+                    "selected_token_count": sel_tokens,
                     "retrieval_quality": retrieval_analysis.get("retrieval_quality", 0.0),
-                    "answer_quality": retrieval_analysis.get("answer_quality", 0.0),
+                    "answer_quality": ans_quality,
                     "coverage": retrieval_analysis.get("coverage", 0.0),
+                    "quality_per_token": round(ans_quality / sel_tokens, 6) if sel_tokens > 0 else 0.0,
                 }
 
             return {
@@ -772,14 +778,17 @@ def simulate_rag_pipeline(
     attention_waste = compute_attention_waste(valid_chunks)
     budget_metrics = None
     if budget_percent is not None:
+        sel_tokens = float(sum(chunk.get("token_count", 0) for chunk in valid_chunks))
+        ans_quality = retrieval_analysis.get("answer_quality", 0.0)
         budget_metrics = {
             "budget_percent": float(normalized_budget_percent),
             "budget_token_limit": float(budget_token_limit),
             "selected_chunk_count": float(len(valid_chunks)),
-            "selected_token_count": float(sum(chunk.get("token_count", 0) for chunk in valid_chunks)),
+            "selected_token_count": sel_tokens,
             "retrieval_quality": retrieval_analysis.get("retrieval_quality", 0.0),
-            "answer_quality": retrieval_analysis.get("answer_quality", 0.0),
+            "answer_quality": ans_quality,
             "coverage": retrieval_analysis.get("coverage", 0.0),
+            "quality_per_token": round(ans_quality / sel_tokens, 6) if sel_tokens > 0 else 0.0,
         }
 
     return {
