@@ -2,11 +2,12 @@
 
 Tokaroo(Token+Kangaroo) is an advanced, lightweight AI evaluation engineering toolkit designed to diagnose, explain, and automatically heal Retrieval-Augmented Generation (RAG) pipelines.
 
-Instead of just counting tokens, Tokaroo acts as an **X-Ray for your prompt context**, simulating how chunks are semantically embedded, cross-encoded, positioned, and ultimately processed by LLMs. It features a **Cinematic 3D Semantic Network UI** and an asynchronous benchmarking pipeline to visualize and test your retrieval strategies in real-time. It exposes complex cognitive failures like:
+Instead of just counting tokens, Tokaroo acts as an **X-Ray for your prompt context**, simulating how chunks are semantically embedded, optionally cross-encoded, positioned, and ultimately processed by LLMs. It features a **Cinematic 3D Semantic Network UI** and an asynchronous benchmarking pipeline to visualize and test your retrieval strategies in real-time. It exposes complex cognitive failures like:
 - **Lost-in-the-Middle Attention Decay**: The model ignores valid data because of where it was placed.
 - **Semantic Mismatch & Hallucination Risks**: The vector DB loved the chunk (high semantic score), but it lacks actual lexical grounding (keywords), leading to false confidence.
 - **Noisy Context Usage**: Irrelevant chunks taking up valuable cognitive attention.
 - **Semantic Fragmentation**: Related ideas sliced apart by poor chunk boundaries.
+- **Reranker Drift / Overhead Tradeoffs**: Compare fast hybrid retrieval against cross-encoder reranking to see whether the reranker improves quality enough to justify the extra latency.
 
 ## Target Audience
 - **Academicians & Researchers:** Study and visualize positional bias and attention decay dynamically.
@@ -21,7 +22,7 @@ Instead of just counting tokens, Tokaroo acts as an **X-Ray for your prompt cont
    - **Semantic Search:** Uses `SentenceTransformers` (`all-MiniLM-L6-v2`) for raw dense embedding generation and similarity scoring.
    - **Lexical Overlap:** Computes keyword density to ensure semantic matches aren't "hallucinated relevance".
 4. **Strict Pre-Prompt Filtering**: Dynamically filters chunks based on adaptive thresholds (e.g., `max(0.2, max_score * 0.6)`) to aggressively discard noise and "garbage-in" data before it hits the model.
-5. **Cross-Encoder Reranking**: Uses `ms-marco-MiniLM-L-6-v2` as an elite signal truth to re-evaluate semantic relevance against the query.
+5. **Optional Cross-Encoder Reranking**: When `reranker_enabled=true` (default), uses `ms-marco-MiniLM-L-6-v2` as an elite signal truth to re-evaluate semantic relevance against the query. Set `reranker_enabled=false` to run faster hybrid retrieval without the cross-encoder and compare quality/latency tradeoffs.
 6. **Attention Model & Usage Simulation**: Calculates deterministic positional weights to simulate U-shaped LLM attention curves.
 7. **Diagnostic Analyzer**: A strict, hierarchical decision tree identifies the primary structural flaw (e.g., Overflow > No Relevant Context > Redundancy).
 8. **Adaptive Optimizer Loop (2-Pass Mode)**: If `auto_optimize=True` and the `health_score` is poor, Tokaroo automatically applies its recommended config and re-runs the simulation to "heal" the RAG query.
