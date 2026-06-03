@@ -246,6 +246,31 @@ def generate_rag_diagnosis(
                 ]
             )
 
+    # Check 11: Faithfulness & Groundedness (Hallucination Risk)
+    faithfulness = rag_data.get("faithfulness")
+    if faithfulness and isinstance(faithfulness, dict):
+        faithfulness_score = faithfulness.get("score")
+        if faithfulness_score is not None:
+            # Deduct health score based on faithfulness gap (max penalty of 30 points)
+            faithfulness_penalty = round((1.0 - faithfulness_score) * 30)
+            health_score -= faithfulness_penalty
+
+            if faithfulness_score < 0.75:
+                issues.append({
+                    "type": "low_faithfulness_hallucination",
+                    "severity": "high" if faithfulness_score < 0.5 else "medium"
+                })
+                impact = "high"
+                confidence = 0.90
+                short_summary = f"Low faithfulness detected ({faithfulness_score:.0%}). Generated answer contains statements unsupported by retrieved context."
+                actionable_steps.extend(
+                    [
+                        "Review the unsupported statements in the response breakdown and check for model hallucination.",
+                        "Increase vector DB Top-K or chunk size to bring more supporting context into the prompt.",
+                        "Rerank context chunks to push the most relevant/grounding information to high-attention slots.",
+                    ]
+                )
+
     # Success Case
     if not actionable_steps and primary_issue == "optimal" and usage_gap < 0.05 and attention_waste < 0.2:
         actionable_steps.append("No changes needed. Keep building!")
@@ -326,6 +351,8 @@ def generate_rag_diagnosis(
         "suboptimal_integration",
     ]
 
+    if "low_faithfulness_hallucination" not in priority_order:
+        priority_order.insert(2, "low_faithfulness_hallucination")
     detected = set(i["type"] for i in issues)
 
     for p in priority_order:
@@ -334,7 +361,9 @@ def generate_rag_diagnosis(
             break
 
     system_insight = "RAG pipeline is healthy and context utilization is optimal."
-    if primary_issue == "context_window_overflow":
+    if primary_issue == "low_faithfulness_hallucination":
+        system_insight = "Severe hallucination risk: the model generated statements that cannot be grounded in retrieved context."
+    elif primary_issue == "context_window_overflow":
         system_insight = "Context overflow is the dominant failure mode: retrieved chunks are being dropped before the model can use them."
     elif primary_issue == "lost_in_middle_decay":
         system_insight = "Low-relevance chunk placement and attention collapse are causing the model to miss important middle chunks."
@@ -417,7 +446,11 @@ def generate_rag_diagnosis(
     # 🚨 FINAL OVERRIDE: Ensure short_summary matches the primary_issue resolved above
     # Since checks run sequentially and can overwrite local variables,
     # we enforce exact explanation mapping for critical errors.
-    if primary_issue == "no_relevant_context":
+    if primary_issue == "low_faithfulness_hallucination":
+        f_score = faithfulness.get("score", 0.0) if faithfulness else 0.0
+        short_summary = f"Severe hallucination risk: the answer has low faithfulness ({f_score:.0%}) to retrieved chunks."
+        impact = "high"
+    elif primary_issue == "no_relevant_context":
         short_summary = "No relevant context found: all retrieved chunks have low semantic alignment with the query."
         impact = "high"
 

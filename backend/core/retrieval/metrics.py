@@ -144,3 +144,138 @@ def compute_retrieval_metrics_gold(ranked_chunks: list[dict], labels: dict[int, 
         "hit_rate": round(hit_rate, 4),
         "ndcg": round(ndcg, 4),
     }
+
+
+def compute_faithfulness(
+    answer: str,
+    context_chunks: list[dict],
+    encode_fn=None,
+    keyword_score_fn=None,
+    embedding_threshold: float = 0.6,
+    keyword_threshold: float = 0.4,
+) -> dict:
+    """
+    Computes faithfulness/groundedness of an answer against retrieved context chunks.
+    Splits the answer into sentences/statements.
+    For each sentence, computes its support score against each chunk.
+    If the max support score exceeds a threshold, the statement is supported.
+    Returns:
+        {
+            "score": float,  # ratio of supported statements
+            "statements": [
+                {
+                    "statement": str,
+                    "supported": bool,
+                    "max_similarity": float,
+                    "supporting_chunk_index": int | None,
+                    "support_type": str  # "embedding", "keyword", or "none"
+                }
+            ]
+        }
+    """
+    import re
+    if not answer or not answer.strip():
+        return {
+            "score": 0.0,
+            "statements": [],
+        }
+
+    # Split answer into sentences/statements
+    # Match sentence endings (. ! ?) followed by space or end of line
+    raw_statements = re.split(r'(?<=[.!?])\s+', answer.strip())
+    statements = [s.strip() for s in raw_statements if s.strip()]
+
+    if not statements:
+        return {
+            "score": 1.0,
+            "statements": [],
+        }
+
+    statement_details = []
+    supported_count = 0
+
+    chunk_texts = [c.get("decoded_text", "") for c in context_chunks]
+
+    # Pre-encode chunk texts if encode_fn is available and we have chunk texts
+    chunk_embeddings = None
+    if encode_fn and chunk_texts:
+        try:
+            chunk_embeddings = encode_fn(chunk_texts)
+        except Exception:
+            chunk_embeddings = None
+
+    # Load keyword score function if not provided
+    if keyword_score_fn is None:
+        try:
+            from core.retrieval.keyword import _keyword_overlap_score as kw_fn
+        except ModuleNotFoundError:
+            from backend.core.retrieval.keyword import _keyword_overlap_score as kw_fn
+        keyword_score_fn = kw_fn
+
+    for stmt in statements:
+        max_sim = 0.0
+        supporting_idx = None
+        support_type = "none"
+
+        # Check embedding similarity if encode_fn and chunk_embeddings are available
+        stmt_embedding = None
+        if encode_fn and chunk_embeddings is not None:
+            try:
+                stmt_embedding = encode_fn([stmt])
+            except Exception:
+                stmt_embedding = None
+
+            if stmt_embedding is not None and len(stmt_embedding) > 0:
+                # Calculate cosine similarity with all chunks
+                # stmt_embedding is shape (1, D), chunk_embeddings is shape (N, D)
+                for idx, chunk_emb in enumerate(chunk_embeddings):
+                    try:
+                        sim = float(stmt_embedding[0] @ chunk_emb)
+                    except Exception:
+                        sim = 0.0
+                    if sim > max_sim:
+                        max_sim = sim
+                        supporting_idx = context_chunks[idx].get("chunk_index")
+                        support_type = "embedding"
+
+        # If embedding similarity is low or not available, check keyword overlap
+        if support_type == "none" or max_sim < embedding_threshold:
+            for idx, chunk in enumerate(context_chunks):
+                kw_sim = 0.0
+                if keyword_score_fn:
+                    try:
+                        kw_sim = keyword_score_fn(stmt, chunk.get("decoded_text", ""))
+                    except Exception:
+                        pass
+                
+                # If we didn't use embeddings or embedding similarity is lower than keyword similarity
+                if kw_sim > max_sim:
+                    max_sim = kw_sim
+                    supporting_idx = chunk.get("chunk_index")
+                    support_type = "keyword"
+
+        # Determine support status
+        is_supported = False
+        if support_type == "embedding" and max_sim >= embedding_threshold:
+            is_supported = True
+        elif support_type == "keyword" and max_sim >= keyword_threshold:
+            is_supported = True
+
+        if is_supported:
+            supported_count += 1
+
+        statement_details.append({
+            "statement": stmt,
+            "supported": is_supported,
+            "max_similarity": round(max_sim, 3),
+            "supporting_chunk_index": supporting_idx if is_supported else None,
+            "support_type": support_type if is_supported else "none",
+        })
+
+    score = round(supported_count / len(statements), 3) if statements else 1.0
+
+    return {
+        "score": score,
+        "statements": statement_details,
+    }
+

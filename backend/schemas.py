@@ -189,6 +189,7 @@ class RagChunkResponse(BaseModel):
     rerank_scores: Optional[List[float]] = None
     retrieval_analysis: Optional[Dict[str, float]] = None
     answer_evaluation: Optional[Dict[str, Any]] = None
+    faithfulness: Optional[Dict[str, Any]] = None
     ignored_relevant_chunks: Optional[List[int]] = None
     attention_waste: Optional[float] = None
     reranker_impact: Optional[Dict[str, Any]] = None

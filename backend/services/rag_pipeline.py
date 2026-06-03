@@ -11,6 +11,7 @@ try:
         compute_retrieval_metrics_gold,
         compute_retrieval_usage_gap,
         detect_ignored_relevant,
+        compute_faithfulness,
     )
     from core.retrieval.ranks import _assign_ranks, compute_rrf_scores
     from core.retrieval.rerank import rerank_chunks
@@ -27,6 +28,7 @@ except ModuleNotFoundError:
         compute_retrieval_metrics_gold,
         compute_retrieval_usage_gap,
         detect_ignored_relevant,
+        compute_faithfulness,
     )
     from backend.core.retrieval.ranks import _assign_ranks, compute_rrf_scores
     from backend.core.retrieval.rerank import rerank_chunks
@@ -56,6 +58,8 @@ def simulate_rag_pipeline(
     gold_answer: str | None = None,
     reranker_enabled: bool = True,
 ) -> dict:
+    faithfulness = {"score": 0.0, "statements": [], "generated_answer": ""}
+
     if overlap > chunk_size * 0.5:
         overlap = int(chunk_size * 0.2)
 
@@ -599,6 +603,7 @@ def simulate_rag_pipeline(
                 "attention_waste": attention_waste,
                 "reranker_impact": reranker_impact,
                 "context_placement_strategy": context_placement_strategy or "reverse",
+                "faithfulness": faithfulness,
             }
 
         return {
@@ -633,7 +638,66 @@ def simulate_rag_pipeline(
             "attention_waste": attention_waste,
             "reranker_impact": reranker_impact,
             "context_placement_strategy": context_placement_strategy or "reverse",
+            "faithfulness": faithfulness,
         }
+
+    # 5.5 Faithfulness Evaluation Pipeline
+    # Split sentences helper
+    def _split_sentences(text: str) -> list[str]:
+        import re
+        raw_sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        return [s.strip() for s in raw_sentences if s.strip()]
+
+    # If gold_answer is not provided, generate a simulated response
+    active_gold_answer = gold_answer
+    if not active_gold_answer or not active_gold_answer.strip():
+        # Let's generate a partially-faithful simulated answer to demonstrate the evaluation flow
+        faithful_sentence = ""
+        for chunk in valid_chunks:
+            chunk_text = chunk.get("decoded_text", "").strip()
+            if chunk_text:
+                sentences = _split_sentences(chunk_text)
+                if sentences:
+                    for s in sentences:
+                        if len(s) > 15:
+                            faithful_sentence = s
+                            break
+                    if faithful_sentence:
+                        break
+        
+        # Now find a sentence from the non-retrieved chunks (or other chunks not in valid_chunks)
+        unfaithful_sentence = ""
+        valid_chunk_indices = {c.get("chunk_index") for c in valid_chunks}
+        non_retrieved_chunks = [c for c in all_chunks if c.get("chunk_index") not in valid_chunk_indices]
+        for chunk in non_retrieved_chunks:
+            chunk_text = chunk.get("decoded_text", "").strip()
+            if chunk_text:
+                sentences = _split_sentences(chunk_text)
+                if sentences:
+                    for s in sentences:
+                        if len(s) > 15:
+                            unfaithful_sentence = s
+                            break
+                    if unfaithful_sentence:
+                        break
+        
+        if not unfaithful_sentence:
+            # Fallback unfaithful sentence if no other chunks exist
+            unfaithful_sentence = "Additionally, the system performs external web scraping to retrieve unrelated base statistics."
+
+        if faithful_sentence:
+            active_gold_answer = f"{faithful_sentence} {unfaithful_sentence}"
+        else:
+            active_gold_answer = unfaithful_sentence
+
+    # Compute Faithfulness
+    faithfulness = compute_faithfulness(
+        answer=active_gold_answer,
+        context_chunks=valid_chunks,
+        encode_fn=_encode_texts,
+        keyword_score_fn=_keyword_overlap_score,
+    )
+    faithfulness["generated_answer"] = active_gold_answer
 
     visible_positions = range(len(valid_chunks))
     positional_weights = calculate_attention_weights(
@@ -763,6 +827,7 @@ def simulate_rag_pipeline(
                 "attention_waste": attention_waste,
                 "reranker_impact": reranker_impact,
                 "context_placement_strategy": context_placement_strategy or "reverse",
+                "faithfulness": faithfulness,
             }
 
         thresh_critical = min_imp + (0.3 * range_imp)
@@ -832,4 +897,5 @@ def simulate_rag_pipeline(
         "attention_waste": attention_waste,
         "reranker_impact": reranker_impact,
         "context_placement_strategy": context_placement_strategy or "reverse",
+        "faithfulness": faithfulness,
     }

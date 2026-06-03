@@ -1224,3 +1224,117 @@ def test_reorder_simulation_reduces_lost_in_middle(monkeypatch):
     assert isinstance(reorder["after"], list)
     # health score should include attention penalty (be < 100)
     assert data["optimization"]["health_score"] < 100
+
+
+def test_compute_faithfulness_basics():
+    from backend.core.retrieval.metrics import compute_faithfulness
+
+    context = [
+        {"chunk_index": 1, "decoded_text": "The Capital of France is Paris. Paris is a very beautiful city."},
+        {"chunk_index": 2, "decoded_text": "The Eiffel Tower was built in 1889."}
+    ]
+
+    # Test 1: Completely faithful (100%)
+    res_1 = compute_faithfulness(
+        answer="Paris is the Capital of France. The Eiffel Tower was built in 1889.",
+        context_chunks=context,
+        encode_fn=None,  # Forces keyword fallback
+    )
+    assert res_1["score"] == 1.0
+    assert len(res_1["statements"]) == 2
+    assert res_1["statements"][0]["supported"] is True
+    assert res_1["statements"][0]["supporting_chunk_index"] == 1
+    assert res_1["statements"][1]["supported"] is True
+    assert res_1["statements"][1]["supporting_chunk_index"] == 2
+
+    # Test 2: Partially faithful (50%)
+    res_2 = compute_faithfulness(
+        answer="Paris is the Capital of France. Berlin is the Capital of Germany.",
+        context_chunks=context,
+        encode_fn=None,
+    )
+    assert res_2["score"] == 0.5
+    assert res_2["statements"][0]["supported"] is True
+    assert res_2["statements"][1]["supported"] is False
+    assert res_2["statements"][1]["supporting_chunk_index"] is None
+
+    # Test 3: Completely unfaithful (0%)
+    res_3 = compute_faithfulness(
+        answer="Madrid is the Capital of Spain.",
+        context_chunks=context,
+        encode_fn=None,
+    )
+    assert res_3["score"] == 0.0
+    assert res_3["statements"][0]["supported"] is False
+
+
+def test_simulate_rag_returns_faithfulness(monkeypatch):
+    response = client.post(
+        "/simulate-rag",
+        json={
+            "text": TEST_TEXT,
+            "model": "claude-sonnet-4-6",
+            "chunk_size": 40,
+            "overlap": 5,
+            "top_k": 3,
+            "retrieval_strategy": "relevance_sorted",
+            "gold_answer": "The KrishiSakha AI system was developed by Karamveer Singh.",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "faithfulness" in data
+    assert data["faithfulness"]["score"] > 0.0
+    assert len(data["faithfulness"]["statements"]) > 0
+
+
+def test_faithfulness_impacts_health_score(monkeypatch):
+    # Mock simulation data with extremely low faithfulness (0.0)
+    monkeypatch.setattr(
+        app_module,
+        "run_rag_simulation",
+        lambda **kwargs: {
+            "total_original_tokens": 100,
+            "total_chunks_created": 3,
+            "chunks_in_prompt": 3,
+            "extra_tokens_due_to_overlap": 10,
+            "chunks": [
+                {"chunk_index": 1, "decoded_text": "Wheat grows in winter.", "relevance_score": 0.9, "positional_weight": 0.9},
+                {"chunk_index": 2, "decoded_text": "Rice grows in summer.", "relevance_score": 0.8, "positional_weight": 0.8},
+            ],
+            "attention_curve": [0.9, 0.8],
+            "faithfulness": {
+                "score": 0.0,
+                "statements": [
+                    {
+                        "statement": "The capital of Japan is Tokyo.",
+                        "supported": False,
+                        "max_similarity": 0.1,
+                        "supporting_chunk_index": None,
+                        "support_type": "none",
+                    }
+                ],
+                "generated_answer": "The capital of Japan is Tokyo."
+            }
+        },
+    )
+
+    response = client.post(
+        "/simulate-rag",
+        json={
+            "text": TEST_TEXT,
+            "model": "claude-sonnet-4-6",
+            "chunk_size": 50,
+            "overlap": 5,
+            "top_k": 2,
+            "retrieval_strategy": "relevance_sorted",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["optimization"]["primary_issue"] == "low_faithfulness_hallucination"
+    # Low faithfulness must trigger health score deduction (100 - 30 penalty = 70 max, plus other penalties or override to <= 68/80)
+    assert data["optimization"]["health_score"] <= 70
+    assert any("low faithfulness" in step.lower() or "hallucination" in step.lower() for step in data["optimization"]["actionable_steps"])
+
