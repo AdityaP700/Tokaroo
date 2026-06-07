@@ -76,6 +76,7 @@ class RagChunkRequest(BaseModel):
         description="Controlled 1-based prompt position for the gold chunk, or 'first', 'middle', 'last'",
     )
     gold_answer: Optional[str] = Field(default=None, description="Reference answer used for answer-quality scoring")
+    generation_mode: Optional[str] = Field(default="synthetic", description="Answer generation mode: 'synthetic' or 'llm'")
 
 class RerankerBenchmarkRequest(BaseModel):
     text: str
@@ -168,6 +169,7 @@ class ClaimResult(BaseModel):
     supported: bool = Field(..., description="Whether this claim is supported by the context")
     max_similarity: float = Field(0.0, description="Maximum similarity/overlap score found for this claim")
     supporting_chunk_index: Optional[int] = Field(None, description="Index of the chunk that supports this claim")
+    supporting_snippet: Optional[str] = Field(None, description="The specific sentence/snippet from the supporting chunk that supports this claim")
     support_type: str = Field("none", description="Method of support: 'embedding', 'keyword', or 'none'")
 
     @model_validator(mode="before")
@@ -187,6 +189,7 @@ class FaithfulnessResult(BaseModel):
     supported_claims: int = Field(0, description="Number of supported claims")
     unsupported_claims: int = Field(0, description="Number of unsupported claims")
     failure_type: Optional[str] = Field(None, description="Type of failure: 'none', 'claim_extraction', 'unsupported_claims', etc.")
+    generation_mode: str = Field("synthetic", description="Answer generation mode used: 'synthetic' or 'llm'")
     claims: List[ClaimResult] = Field(default_factory=list, description="Detailed list of evaluated claims")
     statements: List[ClaimResult] = Field(default_factory=list, description="Alias for claims, for backward compatibility")
 
@@ -214,6 +217,7 @@ class RootCause(BaseModel):
     generation_failure_confidence: float = Field(..., description="Confidence score that the model generated unsupported claims despite good context")
     primary_cause: str = Field(..., description="The identified primary cause of failure: 'retrieval_failure', 'context_failure', 'generation_failure', or 'none'")
     root_cause_reason: str = Field(..., description="Detailed description explaining why this failure happened")
+    evidence: Optional[Dict[str, Any]] = Field(None, description="Detailed metrics/evidence supporting the root cause analysis")
 
 class RagChunkResponse(BaseModel):
     model: str

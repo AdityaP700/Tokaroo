@@ -269,6 +269,28 @@ def compute_faithfulness(
         elif support_type == "keyword" and max_sim >= keyword_threshold:
             is_supported = True
 
+        supporting_snippet = None
+        if is_supported and supporting_idx is not None:
+            sup_chunk = next((c for c in context_chunks if c.get("chunk_index") == supporting_idx), None)
+            if sup_chunk:
+                text = sup_chunk.get("decoded_text", "")
+                import re
+                sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+                best_sentence = text
+                best_score = -1.0
+                for s in sentences:
+                    if keyword_score_fn:
+                        try:
+                            score = keyword_score_fn(stmt, s)
+                        except Exception:
+                            score = 0.0
+                    else:
+                        score = 0.0
+                    if score > best_score:
+                        best_score = score
+                        best_sentence = s
+                supporting_snippet = best_sentence
+
         if is_supported:
             supported_count += 1
 
@@ -278,6 +300,7 @@ def compute_faithfulness(
             "supported": is_supported,
             "max_similarity": round(max_sim, 3),
             "supporting_chunk_index": supporting_idx if is_supported else None,
+            "supporting_snippet": supporting_snippet,
             "support_type": support_type if is_supported else "none",
         }
         claim_details.append(claim_detail)

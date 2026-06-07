@@ -225,6 +225,7 @@ def simulate_rag(request: RagChunkRequest):
         answer_chunk_position=request.answer_chunk_position,
         gold_answer=request.gold_answer,
         reranker_enabled=request.reranker_enabled,
+        generation_mode=request.generation_mode,
     )
 
     # ---------------------------------------------------------
@@ -262,6 +263,7 @@ def simulate_rag(request: RagChunkRequest):
             answer_chunk_position=request.answer_chunk_position,
             gold_answer=request.gold_answer,
             reranker_enabled=request.reranker_enabled,
+            generation_mode=request.generation_mode,
         )
         # Re-analyze with the new data
         insights = generate_rag_diagnosis(rag_data, new_top_k, retrieval_strategy, new_chunk_size)

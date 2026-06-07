@@ -1,5 +1,6 @@
 import copy
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +49,24 @@ def _compute_root_cause_analysis(
     retrieval_analysis: dict,
     faithfulness: dict,
 ) -> dict:
-    # 1. Retrieval Failure Confidence
-    max_relevance = max((c.get("rerank_score", c.get("similarity_score", 0.0)) for c in all_chunks), default=0.0)
-    retrieval_failure_confidence = round(max(0.0, min(1.0, (0.7 - max_relevance) / 0.35)), 3)
+    # 1. Retrieval Failure Confidence (Z-score based & relative to baseline)
+    scores = [c.get("rerank_score", c.get("similarity_score", 0.0)) for c in all_chunks]
+    max_relevance = max(scores, default=0.0)
+    
+    if len(scores) > 1:
+        mean_val = sum(scores) / len(scores)
+        std_val = max(0.01, (sum((x - mean_val) ** 2 for x in scores) / len(scores)) ** 0.5)
+        z_score = (max_relevance - mean_val) / std_val
+        retrieval_failure_confidence = round(max(0.0, min(1.0, (2.0 - z_score) / 1.5)), 3)
+    else:
+        retrieval_failure_confidence = round(max(0.0, min(1.0, (0.7 - max_relevance) / 0.35)), 3)
 
-    # 2. Context Failure Confidence
-    retrieved_relevant = [c for c in retrieved_chunks if c.get("rerank_score", c.get("similarity_score", 0.0)) >= 0.4]
+    # 2. Context Failure Confidence (Adaptive relevance threshold)
+    retrieved_scores = [c.get("rerank_score", c.get("similarity_score", 0.0)) for c in retrieved_chunks]
+    retrieved_avg = sum(retrieved_scores) / len(retrieved_scores) if retrieved_scores else 0.0
+    global_relevance_thresh = max(0.3, retrieved_avg * 0.8)
+    
+    retrieved_relevant = [c for c in retrieved_chunks if c.get("rerank_score", c.get("similarity_score", 0.0)) >= global_relevance_thresh]
     valid_chunk_indices = {c.get("chunk_index") for c in valid_chunks}
     dropped_relevant = [c for c in retrieved_relevant if c.get("chunk_index") not in valid_chunk_indices]
 
@@ -94,12 +107,22 @@ def _compute_root_cause_analysis(
             unsupported_claims = faithfulness.get("unsupported_claims", 0)
             root_cause_reason = f"Grounded context was successfully provided, but the model generated {unsupported_claims} unsupported claims (faithfulness: {faithfulness_score:.0%})."
 
+    # Construct evidence
+    evidence = {
+        "dropped_relevant_chunks": len(dropped_relevant),
+        "ignored_chunks": len(ignored_relevant_chunks),
+        "usage_gap": round(usage_gap, 3),
+        "max_relevance": round(max_relevance, 3),
+        "global_relevance_thresh": round(global_relevance_thresh, 3)
+    }
+
     return {
         "retrieval_failure_confidence": retrieval_failure_confidence,
         "context_failure_confidence": context_failure_confidence,
         "generation_failure_confidence": generation_failure_confidence,
         "primary_cause": primary_cause,
         "root_cause_reason": root_cause_reason,
+        "evidence": evidence,
     }
 
 
@@ -124,6 +147,7 @@ def simulate_rag_pipeline(
     answer_chunk_position: int | str | None = None,
     gold_answer: str | None = None,
     reranker_enabled: bool = True,
+    generation_mode: str = "synthetic",
 ) -> dict:
     faithfulness = {"score": 0.0, "statements": [], "generated_answer": ""}
 
@@ -607,9 +631,23 @@ def simulate_rag_pipeline(
     after_valid = _build_valid_from_candidates(inject_order)
 
     # compute reranker impact metrics
+    before_metrics = compute_retrieval_usage_gap(before_valid, total_relevant_retrieved)
+    after_metrics = compute_retrieval_usage_gap(after_valid, total_relevant_retrieved)
+    
+    ans_diff = after_metrics["answer_quality"] - before_metrics["answer_quality"]
+    cov_diff = after_metrics["coverage"] - before_metrics["coverage"]
+    
+    if ans_diff > 0.02 or (ans_diff >= -0.02 and cov_diff > 0):
+        net_effect = "positive"
+    elif ans_diff < -0.02 or cov_diff < -0.1:
+        net_effect = "negative"
+    else:
+        net_effect = "mixed"
+
     reranker_impact = {
-        "before": compute_retrieval_usage_gap(before_valid, total_relevant_retrieved),
-        "after": compute_retrieval_usage_gap(after_valid, total_relevant_retrieved),
+        "before": before_metrics,
+        "after": after_metrics,
+        "net_effect": net_effect,
     }
 
     # use the after_valid set as the canonical valid_chunks for downstream analysis
@@ -734,46 +772,99 @@ def simulate_rag_pipeline(
     # If gold_answer is not provided, generate a simulated response
     #
     active_gold_answer = gold_answer
-    if not active_gold_answer or not active_gold_answer.strip():
-        # Let's generate a partially-faithful simulated answer to demonstrate the evaluation flow
-        faithful_sentence = ""
-        #search retrieved chunks
-        for chunk in valid_chunks:
-            chunk_text = chunk.get("decoded_text", "").strip()
-            if chunk_text:
-                sentences = _split_sentences(chunk_text)
-                if sentences:
-                    for s in sentences:
-                        if len(s) > MIN_CLAIM_LENGTH:
-                            faithful_sentence = s
+    resolved_generation_mode = "synthetic"
+
+    if active_gold_answer and active_gold_answer.strip():
+        resolved_generation_mode = "llm"  # Explicitly provided answers are treated as real/LLM answers
+    else:
+        if generation_mode == "llm":
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                logger.warning("GEMINI_API_KEY is not set. Falling back to synthetic generation mode.")
+            else:
+                try:
+                    import google.generativeai as genai
+                    genai.configure(api_key=api_key)
+                    
+                    context_str = ""
+                    for c in valid_chunks:
+                        context_str += f"Context Chunk {c.get('chunk_index')}:\n{c.get('decoded_text')}\n\n"
+                    
+                    prompt = (
+                        "You are a technical question-answering assistant.\n"
+                        "Instructions:\n"
+                        "- Answer the question using ONLY facts stated directly in the context chunks below.\n"
+                        "- Do not make up facts or extrapolate.\n"
+                        "- If the question cannot be answered from the context chunks, say: 'I cannot answer this based on the provided context.'\n\n"
+                        f"Context Chunks:\n{context_str}"
+                        f"Question: {query or 'Summarize the context chunks.'}\n\n"
+                        "Answer:"
+                    )
+                    
+                    model = genai.GenerativeModel("gemini-2.5-flash")
+                    response = model.generate_content(
+                        prompt, 
+                        generation_config=genai.types.GenerationConfig(
+                            max_output_tokens=300,
+                            temperature=0.2
+                        )
+                    )
+                    
+                    text = getattr(response, "text", None)
+                    if not text and hasattr(response, "candidates") and response.candidates:
+                        c0 = response.candidates[0]
+                        if hasattr(c0, "content") and c0.content and hasattr(c0.content, "parts") and c0.content.parts:
+                            text = "".join(getattr(part, "text", "") for part in c0.content.parts)
+                    
+                    if text and text.strip():
+                        active_gold_answer = text.strip()
+                        resolved_generation_mode = "llm"
+                        logger.info("Successfully generated real LLM answer.")
+                    else:
+                        logger.warning("Gemini API returned empty text. Falling back to synthetic mode.")
+                except Exception as e:
+                    logger.exception("Error generating LLM answer: %s. Falling back to synthetic mode.", e)
+
+        if not active_gold_answer or not active_gold_answer.strip():
+            # Let's generate a partially-faithful simulated answer to demonstrate the evaluation flow
+            faithful_sentence = ""
+            #search retrieved chunks
+            for chunk in valid_chunks:
+                chunk_text = chunk.get("decoded_text", "").strip()
+                if chunk_text:
+                    sentences = _split_sentences(chunk_text)
+                    if sentences:
+                        for s in sentences:
+                            if len(s) > MIN_CLAIM_LENGTH:
+                                faithful_sentence = s
+                                break
+                        if faithful_sentence:
                             break
-                    if faithful_sentence:
-                        break
 
-        # Now find a sentence from the non-retrieved chunks (or other chunks not in valid_chunks)
-        unfaithful_sentence = ""
-        valid_chunk_indices = {c.get("chunk_index") for c in valid_chunks}
-        non_retrieved_chunks = [c for c in all_chunks if c.get("chunk_index") not in valid_chunk_indices]
-        for chunk in non_retrieved_chunks:
-            chunk_text = chunk.get("decoded_text", "").strip()
-            if chunk_text:
-                sentences = _split_sentences(chunk_text)
-                if sentences:
-                    for s in sentences:
-                        if len(s) > MIN_CLAIM_LENGTH:
-                            unfaithful_sentence = s
+            # Now find a sentence from the non-retrieved chunks (or other chunks not in valid_chunks)
+            unfaithful_sentence = ""
+            valid_chunk_indices = {c.get("chunk_index") for c in valid_chunks}
+            non_retrieved_chunks = [c for c in all_chunks if c.get("chunk_index") not in valid_chunk_indices]
+            for chunk in non_retrieved_chunks:
+                chunk_text = chunk.get("decoded_text", "").strip()
+                if chunk_text:
+                    sentences = _split_sentences(chunk_text)
+                    if sentences:
+                        for s in sentences:
+                            if len(s) > MIN_CLAIM_LENGTH:
+                                unfaithful_sentence = s
+                                break
+                        if unfaithful_sentence:
                             break
-                    if unfaithful_sentence:
-                        break
 
-        if not unfaithful_sentence:
-            # Fallback unfaithful sentence if no other chunks exist
-            unfaithful_sentence = "Additionally, the system performs external web scraping to retrieve unrelated base statistics."
+            if not unfaithful_sentence:
+                # Fallback unfaithful sentence if no other chunks exist
+                unfaithful_sentence = "Additionally, the system performs external web scraping to retrieve unrelated base statistics."
 
-        if faithful_sentence:
-            active_gold_answer = f"{faithful_sentence} {unfaithful_sentence}"
-        else:
-            active_gold_answer = unfaithful_sentence
+            if faithful_sentence:
+                active_gold_answer = f"{faithful_sentence} {unfaithful_sentence}"
+            else:
+                active_gold_answer = unfaithful_sentence
 
     # Compute Faithfulness
     faithfulness = compute_faithfulness(
@@ -783,6 +874,7 @@ def simulate_rag_pipeline(
         keyword_score_fn=_keyword_overlap_score,
     )
     faithfulness["generated_answer"] = active_gold_answer
+    faithfulness["generation_mode"] = resolved_generation_mode
 
     visible_positions = range(len(valid_chunks))
     positional_weights = calculate_attention_weights(
