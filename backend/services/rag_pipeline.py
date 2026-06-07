@@ -79,7 +79,7 @@ def _compute_root_cause_analysis(
 
     # 3. Generation Failure Confidence
     faithfulness_score = faithfulness.get("score", 1.0) if faithfulness else 1.0
-    generation_failure_confidence = round((1.0 - faithfulness_score) * (1.0 - retrieval_failure_confidence) * (1.0 - context_failure_confidence), 3)
+    generation_failure_confidence = round(1.0 - faithfulness_score, 3)
 
     # 4. Primary Cause and Reason
     confidences = {
