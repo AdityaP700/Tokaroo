@@ -1,5 +1,6 @@
 from functools import lru_cache
 import logging
+import math
 
 from .keyword import _normalized_words
 
@@ -8,21 +9,33 @@ logger = logging.getLogger(__name__)
 _CROSS_ENCODER_RERANKER = None
 
 
+def _sigmoid(x: float) -> float:
+    try:
+        return 1.0 / (1.0 + math.exp(-x))
+    except OverflowError:
+        return 0.0 if x < 0 else 1.0
+
+
 @lru_cache(maxsize=1)
 def _load_default_cross_encoder_reranker():
     try:
         from sentence_transformers import CrossEncoder
+    except (ModuleNotFoundError, ImportError) as e:
+        logger.warning("sentence_transformers not installed, falling back to keyword scoring: %s", e)
+        return None
 
+    try:
         return CrossEncoder(
             "cross-encoder/ms-marco-MiniLM-L-6-v2",
             model_kwargs={"local_files_only": True},
         )
-    except (ModuleNotFoundError, ImportError) as e:
-        logger.warning("sentence_transformers not installed, falling back to keyword scoring: %s", e)
-        return None
-    except Exception as e:
-        logger.exception("Failed to load default cross encoder reranker: %s", e)
-        return None
+    except Exception:
+        logger.info("Model cross-encoder/ms-marco-MiniLM-L-6-v2 not found locally. Attempting to download...")
+        try:
+            return CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        except Exception as e:
+            logger.exception("Failed to download or load cross encoder reranker: %s", e)
+            return None
 
 
 def set_cross_encoder_reranker(model) -> None:
@@ -46,7 +59,7 @@ def rerank_chunks(query: str, chunks: list[dict]) -> list[dict]:
             rerank_scores = reranker.predict(pairs)
             for chunk, score in zip(chunks, rerank_scores):
                 chunk["cross_encoder_score"] = round(float(score), 4)
-                chunk["rerank_score"] = min(1.0, round(float(score), 4))
+                chunk["rerank_score"] = round(_sigmoid(float(score)), 4)
 
             return sorted(
                 chunks,

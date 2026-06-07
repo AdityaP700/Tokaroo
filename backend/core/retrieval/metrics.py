@@ -158,7 +158,7 @@ def compute_faithfulness(
     encode_fn=None,
     keyword_score_fn=None,
     embedding_threshold: float = 0.6,
-    keyword_threshold: float = 0.4,
+    keyword_threshold: float = 0.7,
 ) -> dict:
     """
     Computes faithfulness/groundedness of an answer against retrieved context chunks.

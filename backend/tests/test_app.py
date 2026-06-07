@@ -1333,8 +1333,32 @@ def test_faithfulness_impacts_health_score(monkeypatch):
 
     assert response.status_code == 200
     data = response.json()
-    assert data["optimization"]["primary_issue"] == "low_faithfulness_hallucination"
+    assert data["optimization"]["diagnosis"]["primary_issue"] == "low_faithfulness_hallucination"
     # Low faithfulness must trigger health score deduction (100 - 30 penalty = 70 max, plus other penalties or override to <= 68/80)
     assert data["optimization"]["health_score"] <= 70
     assert any("low faithfulness" in step.lower() or "hallucination" in step.lower() for step in data["optimization"]["actionable_steps"])
 
+
+def test_root_cause_analysis_rag_simulation():
+    response = client.post(
+        "/simulate-rag",
+        json={
+            "text": TEST_TEXT,
+            "model": "claude-sonnet-4-6",
+            "chunk_size": 200,
+            "overlap": 20,
+            "top_k": 3,
+            "retrieval_strategy": "relevance_sorted",
+            "gold_answer": "This is a dummy gold answer that will fail faithfulness.",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "root_cause" in data
+    rc = data["root_cause"]
+    assert "retrieval_failure_confidence" in rc
+    assert "context_failure_confidence" in rc
+    assert "generation_failure_confidence" in rc
+    assert "primary_cause" in rc
+    assert "root_cause_reason" in rc
+    assert isinstance(rc["primary_cause"], str)
