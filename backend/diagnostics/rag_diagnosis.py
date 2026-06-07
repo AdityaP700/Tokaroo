@@ -249,18 +249,24 @@ def generate_rag_diagnosis(
     # Check 11: Faithfulness & Groundedness (Hallucination Risk)
     faithfulness = rag_data.get("faithfulness")
     if faithfulness and isinstance(faithfulness, dict):
+        #using .get() instead of ["faithfulness"] prevents crashes
+
         faithfulness_score = faithfulness.get("score")
         if faithfulness_score is not None:
+            # Hallucination Risk = High Priority Signal
             # Deduct health score based on faithfulness gap (max penalty of 30 points)
             faithfulness_penalty = round((1.0 - faithfulness_score) * 30)
             health_score -= faithfulness_penalty
-
+            #remarks : so it means for a
+            #faithfulness of 0.42 ,there could be possible hallucination
             if faithfulness_score < 0.75:
                 issues.append({
                     "type": "low_faithfulness_hallucination",
                     "severity": "high" if faithfulness_score < 0.5 else "medium"
                 })
                 impact = "high"
+                #remarks : why .90 ??
+                #i would prefer confidence=f(faithfulness_score)
                 confidence = 0.90
                 short_summary = f"Low faithfulness detected ({faithfulness_score:.0%}). Generated answer contains statements unsupported by retrieved context."
                 actionable_steps.extend(
@@ -270,7 +276,12 @@ def generate_rag_diagnosis(
                         "Rerank context chunks to push the most relevant/grounding information to high-attention slots.",
                     ]
                 )
-
+#remarks : current recommendation assumes retrieval ,which is not always true
+#inspect the unsupported statements
+#if evidence missing
+#increase topK
+#else lower temp
+#strengthen grounding prompt
     # Success Case
     if not actionable_steps and primary_issue == "optimal" and usage_gap < 0.05 and attention_waste < 0.2:
         actionable_steps.append("No changes needed. Keep building!")

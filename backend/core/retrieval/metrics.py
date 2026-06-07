@@ -1,4 +1,7 @@
 import math
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def compute_retrieval_usage_gap(chunks: list[dict], total_relevant_count: int | None = None) -> dict:
@@ -40,7 +43,7 @@ def compute_retrieval_usage_gap(chunks: list[dict], total_relevant_count: int | 
         if c.get("rerank_score", c.get("similarity_score", 0.0)) >= relevance_threshold
         and c.get("attention_weight", 0.0) >= 0.3
     ]
-    
+
     denominator = total_relevant_count if total_relevant_count is not None else len(relevant_chunks)
     relevant_coverage = len(used_relevant_chunks) / denominator if denominator > 0 else 0.0
     answer_quality = (0.45 * usage_quality) + (0.35 * attended_relevance) + (0.2 * relevant_coverage)
@@ -147,7 +150,10 @@ def compute_retrieval_metrics_gold(ranked_chunks: list[dict], labels: dict[int, 
 
 
 def compute_faithfulness(
+    #accepts ans as string
     answer: str,
+    #accept retrieved context chunks as dict
+    #but we can later expand it to pydantic,typeDict,dataclass
     context_chunks: list[dict],
     encode_fn=None,
     keyword_score_fn=None,
@@ -159,24 +165,15 @@ def compute_faithfulness(
     Splits the answer into sentences/statements.
     For each sentence, computes its support score against each chunk.
     If the max support score exceeds a threshold, the statement is supported.
-    Returns:
-        {
-            "score": float,  # ratio of supported statements
-            "statements": [
-                {
-                    "statement": str,
-                    "supported": bool,
-                    "max_similarity": float,
-                    "supporting_chunk_index": int | None,
-                    "support_type": str  # "embedding", "keyword", or "none"
-                }
-            ]
-        }
     """
     import re
     if not answer or not answer.strip():
         return {
             "score": 0.0,
+            "supported_claims": 0,
+            "unsupported_claims": 0,
+            "failure_type": "claim_extraction",
+            "claims": [],
             "statements": [],
         }
 
@@ -184,14 +181,17 @@ def compute_faithfulness(
     # Match sentence endings (. ! ?) followed by space or end of line
     raw_statements = re.split(r'(?<=[.!?])\s+', answer.strip())
     statements = [s.strip() for s in raw_statements if s.strip()]
-
     if not statements:
         return {
             "score": 1.0,
+            "supported_claims": 0,
+            "unsupported_claims": 0,
+            "failure_type": "claim_extraction",
+            "claims": [],
             "statements": [],
         }
 
-    statement_details = []
+    claim_details = []
     supported_count = 0
 
     chunk_texts = [c.get("decoded_text", "") for c in context_chunks]
@@ -201,7 +201,8 @@ def compute_faithfulness(
     if encode_fn and chunk_texts:
         try:
             chunk_embeddings = encode_fn(chunk_texts)
-        except Exception:
+        except Exception as e:
+            logger.exception("Failed to encode chunk texts during faithfulness evaluation: %s", e)
             chunk_embeddings = None
 
     # Load keyword score function if not provided
@@ -213,6 +214,7 @@ def compute_faithfulness(
         keyword_score_fn = kw_fn
 
     for stmt in statements:
+        #tracks the best evidence found so far
         max_sim = 0.0
         supporting_idx = None
         support_type = "none"
@@ -221,8 +223,10 @@ def compute_faithfulness(
         stmt_embedding = None
         if encode_fn and chunk_embeddings is not None:
             try:
+                #embedding apis expect list[str] and returns N*D matrix
                 stmt_embedding = encode_fn([stmt])
-            except Exception:
+            except Exception as e:
+                logger.exception("Failed to encode statement during faithfulness evaluation: %s", e)
                 stmt_embedding = None
 
             if stmt_embedding is not None and len(stmt_embedding) > 0:
@@ -230,8 +234,11 @@ def compute_faithfulness(
                 # stmt_embedding is shape (1, D), chunk_embeddings is shape (N, D)
                 for idx, chunk_emb in enumerate(chunk_embeddings):
                     try:
+                        #similarity comparision
+                        #this assumes embeddings are normalized
                         sim = float(stmt_embedding[0] @ chunk_emb)
-                    except Exception:
+                    except Exception as e:
+                        logger.exception("Error computing dot product between statement and chunk embedding: %s", e)
                         sim = 0.0
                     if sim > max_sim:
                         max_sim = sim
@@ -245,9 +252,10 @@ def compute_faithfulness(
                 if keyword_score_fn:
                     try:
                         kw_sim = keyword_score_fn(stmt, chunk.get("decoded_text", ""))
-                    except Exception:
+                    except Exception as e:
+                        logger.exception("Error computing keyword overlap score for statement: %s", e)
                         pass
-                
+
                 # If we didn't use embeddings or embedding similarity is lower than keyword similarity
                 if kw_sim > max_sim:
                     max_sim = kw_sim
@@ -264,18 +272,30 @@ def compute_faithfulness(
         if is_supported:
             supported_count += 1
 
-        statement_details.append({
-            "statement": stmt,
+        claim_detail = {
+            "claim": stmt,
+            "statement": stmt,  # backward compatibility
             "supported": is_supported,
             "max_similarity": round(max_sim, 3),
             "supporting_chunk_index": supporting_idx if is_supported else None,
             "support_type": support_type if is_supported else "none",
-        })
+        }
+        claim_details.append(claim_detail)
 
     score = round(supported_count / len(statements), 3) if statements else 1.0
+    unsupported_count = len(statements) - supported_count
+
+    if unsupported_count > 0:
+        failure_type = "unsupported_claims"
+    else:
+        failure_type = "none"
 
     return {
         "score": score,
-        "statements": statement_details,
+        "supported_claims": supported_count,
+        "unsupported_claims": unsupported_count,
+        "failure_type": failure_type,
+        "claims": claim_details,
+        "statements": claim_details,
     }
 

@@ -296,6 +296,7 @@ def simulate_rag(request: RagChunkRequest):
         retrieval_analysis=rag_data.get("retrieval_analysis"),
         answer_evaluation=rag_data.get("answer_evaluation"),
         faithfulness=rag_data.get("faithfulness"),
+        root_cause=rag_data.get("root_cause"),
         ignored_relevant_chunks=rag_data.get("ignored_relevant_chunks"),
         attention_waste=rag_data.get("attention_waste"),
         reranker_impact=rag_data.get("reranker_impact"),

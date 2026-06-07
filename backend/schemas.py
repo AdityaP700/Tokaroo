@@ -1,5 +1,5 @@
-from pydantic import BaseModel,Field
 from typing import List,Optional,Dict,Any
+from pydantic import BaseModel, Field, model_validator
 
 class SimulateRequest(BaseModel):
     text: str
@@ -161,6 +161,60 @@ class OptimizationInsight(BaseModel):
     health_score: Optional[int] = None
     is_optimized: Optional[bool] = False
 
+
+class ClaimResult(BaseModel):
+    claim: str = Field(..., description="The individual statement/claim extracted from the answer")
+    statement: Optional[str] = Field(None, description="Alias for claim, for backward compatibility")
+    supported: bool = Field(..., description="Whether this claim is supported by the context")
+    max_similarity: float = Field(0.0, description="Maximum similarity/overlap score found for this claim")
+    supporting_chunk_index: Optional[int] = Field(None, description="Index of the chunk that supports this claim")
+    support_type: str = Field("none", description="Method of support: 'embedding', 'keyword', or 'none'")
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_claim_and_statement(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            val = data.get("claim") or data.get("statement")
+            if val is not None:
+                if "claim" not in data:
+                    data["claim"] = val
+                if "statement" not in data:
+                    data["statement"] = val
+        return data
+
+class FaithfulnessResult(BaseModel):
+    score: float = Field(0.0, description="Groundedness score: ratio of supported claims")
+    supported_claims: int = Field(0, description="Number of supported claims")
+    unsupported_claims: int = Field(0, description="Number of unsupported claims")
+    failure_type: Optional[str] = Field(None, description="Type of failure: 'none', 'claim_extraction', 'unsupported_claims', etc.")
+    claims: List[ClaimResult] = Field(default_factory=list, description="Detailed list of evaluated claims")
+    statements: List[ClaimResult] = Field(default_factory=list, description="Alias for claims, for backward compatibility")
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_claims_and_statements(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Sync lists of claims and statements
+            claims = data.get("claims") or data.get("statements")
+            if claims is not None:
+                if "claims" not in data:
+                    data["claims"] = claims
+                if "statements" not in data:
+                    data["statements"] = claims
+            # Compute supported / unsupported claims if missing
+            if claims is not None and ("supported_claims" not in data or "unsupported_claims" not in data):
+                supported = sum(1 for c in claims if (isinstance(c, dict) and c.get("supported")) or (hasattr(c, "supported") and c.supported))
+                data["supported_claims"] = supported
+                data["unsupported_claims"] = len(claims) - supported
+        return data
+
+class RootCause(BaseModel):
+    retrieval_failure_confidence: float = Field(..., description="Confidence score that the retriever failed to find relevant chunks")
+    context_failure_confidence: float = Field(..., description="Confidence score that retrieved chunks were lost or ignored")
+    generation_failure_confidence: float = Field(..., description="Confidence score that the model generated unsupported claims despite good context")
+    primary_cause: str = Field(..., description="The identified primary cause of failure: 'retrieval_failure', 'context_failure', 'generation_failure', or 'none'")
+    root_cause_reason: str = Field(..., description="Detailed description explaining why this failure happened")
+
 class RagChunkResponse(BaseModel):
     model: str
     total_original_tokens: int
@@ -189,7 +243,8 @@ class RagChunkResponse(BaseModel):
     rerank_scores: Optional[List[float]] = None
     retrieval_analysis: Optional[Dict[str, float]] = None
     answer_evaluation: Optional[Dict[str, Any]] = None
-    faithfulness: Optional[Dict[str, Any]] = None
+    faithfulness: Optional[FaithfulnessResult] = None
+    root_cause: Optional[RootCause] = None
     ignored_relevant_chunks: Optional[List[int]] = None
     attention_waste: Optional[float] = None
     reranker_impact: Optional[Dict[str, Any]] = None

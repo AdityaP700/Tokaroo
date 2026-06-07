@@ -1,6 +1,9 @@
 from functools import lru_cache
+import logging
 
 from .keyword import _normalized_words
+
+logger = logging.getLogger(__name__)
 
 _CROSS_ENCODER_RERANKER = None
 
@@ -14,7 +17,11 @@ def _load_default_cross_encoder_reranker():
             "cross-encoder/ms-marco-MiniLM-L-6-v2",
             model_kwargs={"local_files_only": True},
         )
-    except Exception:
+    except (ModuleNotFoundError, ImportError) as e:
+        logger.warning("sentence_transformers not installed, falling back to keyword scoring: %s", e)
+        return None
+    except Exception as e:
+        logger.exception("Failed to load default cross encoder reranker: %s", e)
         return None
 
 
@@ -50,7 +57,8 @@ def rerank_chunks(query: str, chunks: list[dict]) -> list[dict]:
                 ),
                 reverse=True,
             )
-        except Exception:
+        except Exception as e:
+            logger.exception("Error predicting rerank scores: %s", e)
             # fall back to hybrid keyword scoring if the cross-encoder is unavailable at runtime
             pass
 

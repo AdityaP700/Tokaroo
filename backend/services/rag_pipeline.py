@@ -1,4 +1,9 @@
 import copy
+import logging
+
+logger = logging.getLogger(__name__)
+
+MIN_CLAIM_LENGTH = 15
 
 try:
     from core.attention import calculate_attention_weights
@@ -34,6 +39,68 @@ except ModuleNotFoundError:
     from backend.core.retrieval.rerank import rerank_chunks
     from backend.core.tokenization import decode_tokens, get_tokens
     from backend.query_transformers import transform_query
+
+def _compute_root_cause_analysis(
+    all_chunks: list[dict],
+    valid_chunks: list[dict],
+    retrieved_chunks: list[dict],
+    ignored_relevant_chunks: list,
+    retrieval_analysis: dict,
+    faithfulness: dict,
+) -> dict:
+    # 1. Retrieval Failure Confidence
+    max_relevance = max((c.get("rerank_score", c.get("similarity_score", 0.0)) for c in all_chunks), default=0.0)
+    retrieval_failure_confidence = round(max(0.0, min(1.0, (0.7 - max_relevance) / 0.35)), 3)
+
+    # 2. Context Failure Confidence
+    retrieved_relevant = [c for c in retrieved_chunks if c.get("rerank_score", c.get("similarity_score", 0.0)) >= 0.4]
+    valid_chunk_indices = {c.get("chunk_index") for c in valid_chunks}
+    dropped_relevant = [c for c in retrieved_relevant if c.get("chunk_index") not in valid_chunk_indices]
+
+    dropped_rel_ratio = len(dropped_relevant) / max(1, len(retrieved_relevant)) if retrieved_relevant else 0.0
+    ignored_rel_ratio = len(ignored_relevant_chunks) / max(1, len(valid_chunks)) if valid_chunks else 0.0
+    usage_gap = retrieval_analysis.get("gap", 0.0)
+
+    base_context_failure = max(dropped_rel_ratio, ignored_rel_ratio, usage_gap * 2.0)
+    context_failure_confidence = round(max(0.0, min(1.0, base_context_failure)) * (1.0 - retrieval_failure_confidence), 3)
+
+    # 3. Generation Failure Confidence
+    faithfulness_score = faithfulness.get("score", 1.0) if faithfulness else 1.0
+    generation_failure_confidence = round((1.0 - faithfulness_score) * (1.0 - retrieval_failure_confidence) * (1.0 - context_failure_confidence), 3)
+
+    # 4. Primary Cause and Reason
+    confidences = {
+        "retrieval_failure": retrieval_failure_confidence,
+        "context_failure": context_failure_confidence,
+        "generation_failure": generation_failure_confidence,
+    }
+    max_conf = max(confidences.values())
+
+    if max_conf < 0.20:
+        primary_cause = "none"
+        root_cause_reason = "No significant failure detected. Pipeline is operating optimally."
+    else:
+        primary_cause = max(confidences, key=confidences.get)
+        if primary_cause == "retrieval_failure":
+            root_cause_reason = f"All retrieved chunks lack semantic relevance to the query (max relevance score: {max_relevance:.2f})."
+        elif primary_cause == "context_failure":
+            if dropped_relevant:
+                root_cause_reason = f"Relevant chunks were retrieved but dropped due to context window limits or token budgeting ({len(dropped_relevant)} dropped)."
+            elif ignored_relevant_chunks:
+                root_cause_reason = f"Relevant chunks were placed in the prompt but ignored due to low attention weights / positional decay ({len(ignored_relevant_chunks)} ignored)."
+            else:
+                root_cause_reason = f"Suboptimal context integration detected: high utilization gap ({usage_gap:.2f}) or attention waste."
+        else:
+            unsupported_claims = faithfulness.get("unsupported_claims", 0)
+            root_cause_reason = f"Grounded context was successfully provided, but the model generated {unsupported_claims} unsupported claims (faithfulness: {faithfulness_score:.0%})."
+
+    return {
+        "retrieval_failure_confidence": retrieval_failure_confidence,
+        "context_failure_confidence": context_failure_confidence,
+        "generation_failure_confidence": generation_failure_confidence,
+        "primary_cause": primary_cause,
+        "root_cause_reason": root_cause_reason,
+    }
 
 
 def simulate_rag_pipeline(
@@ -322,7 +389,7 @@ def simulate_rag_pipeline(
     # Initial retrieval, then optionally rerank
     retrieved_chunks = all_chunks[:top_k]
     rerank_query = query or original_text or ""
-    
+
     if reranker_enabled:
         reranked_chunks = rerank_chunks(rerank_query, retrieved_chunks)
     else:
@@ -330,7 +397,7 @@ def simulate_rag_pipeline(
         reranked_chunks = retrieved_chunks
         for chunk in reranked_chunks:
             chunk["rerank_score"] = chunk.get("similarity_score", 0.0)
-    
+
     retrieval_metrics = compute_retrieval_metrics(all_chunks, reranked_chunks, top_k)
     retrieval_metrics_gold = None
     if relevance_labels:
@@ -572,6 +639,15 @@ def simulate_rag_pipeline(
                 "quality_per_token": 0.0,
             }
 
+        root_cause = _compute_root_cause_analysis(
+            all_chunks=all_chunks,
+            valid_chunks=[],
+            retrieved_chunks=all_chunks[:top_k] if total_chunks_created > 0 else [],
+            ignored_relevant_chunks=ignored_relevant_chunks,
+            retrieval_analysis=retrieval_analysis,
+            faithfulness=faithfulness,
+        )
+
         if budget_percent is None:
             return {
                 "total_original_tokens": total_tokens,
@@ -604,6 +680,7 @@ def simulate_rag_pipeline(
                 "reranker_impact": reranker_impact,
                 "context_placement_strategy": context_placement_strategy or "reverse",
                 "faithfulness": faithfulness,
+                "root_cause": root_cause,
             }
 
         return {
@@ -639,32 +716,40 @@ def simulate_rag_pipeline(
             "reranker_impact": reranker_impact,
             "context_placement_strategy": context_placement_strategy or "reverse",
             "faithfulness": faithfulness,
+            "root_cause": root_cause,
         }
+#remarks : this pipeline builds a synthetic answer and then feeding it into the
+# faitfulness evaluator to test the evaluator pipeline
 
     # 5.5 Faithfulness Evaluation Pipeline
     # Split sentences helper
+    #comments: converts sentence A and B
+    #problem : have same sentence splitting logic
+
     def _split_sentences(text: str) -> list[str]:
         import re
         raw_sentences = re.split(r'(?<=[.!?])\s+', text.strip())
         return [s.strip() for s in raw_sentences if s.strip()]
 
     # If gold_answer is not provided, generate a simulated response
+    #
     active_gold_answer = gold_answer
     if not active_gold_answer or not active_gold_answer.strip():
         # Let's generate a partially-faithful simulated answer to demonstrate the evaluation flow
         faithful_sentence = ""
+        #search retrieved chunks
         for chunk in valid_chunks:
             chunk_text = chunk.get("decoded_text", "").strip()
             if chunk_text:
                 sentences = _split_sentences(chunk_text)
                 if sentences:
                     for s in sentences:
-                        if len(s) > 15:
+                        if len(s) > MIN_CLAIM_LENGTH:
                             faithful_sentence = s
                             break
                     if faithful_sentence:
                         break
-        
+
         # Now find a sentence from the non-retrieved chunks (or other chunks not in valid_chunks)
         unfaithful_sentence = ""
         valid_chunk_indices = {c.get("chunk_index") for c in valid_chunks}
@@ -675,12 +760,12 @@ def simulate_rag_pipeline(
                 sentences = _split_sentences(chunk_text)
                 if sentences:
                     for s in sentences:
-                        if len(s) > 15:
+                        if len(s) > MIN_CLAIM_LENGTH:
                             unfaithful_sentence = s
                             break
                     if unfaithful_sentence:
                         break
-        
+
         if not unfaithful_sentence:
             # Fallback unfaithful sentence if no other chunks exist
             unfaithful_sentence = "Additionally, the system performs external web scraping to retrieve unrelated base statistics."
@@ -779,7 +864,7 @@ def simulate_rag_pipeline(
                 retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]
             ignored_relevant_chunks = detect_ignored_relevant(valid_chunks)
             attention_waste = compute_attention_waste(valid_chunks)
-            
+
             budget_metrics = None
             if budget_percent is not None:
                 sel_tokens = float(sum(chunk.get("token_count", 0) for chunk in valid_chunks))
@@ -795,6 +880,14 @@ def simulate_rag_pipeline(
                     "quality_per_token": round(ans_quality / sel_tokens, 6) if sel_tokens > 0 else 0.0,
                 }
 
+            root_cause = _compute_root_cause_analysis(
+                all_chunks=all_chunks,
+                valid_chunks=valid_chunks,
+                retrieved_chunks=all_chunks[:top_k] if total_chunks_created > 0 else [],
+                ignored_relevant_chunks=ignored_relevant_chunks,
+                retrieval_analysis=retrieval_analysis,
+                faithfulness=faithfulness,
+            )
             return {
                 "total_original_tokens": total_tokens,
                 "total_chunks_created": total_chunks_created,
@@ -828,6 +921,7 @@ def simulate_rag_pipeline(
                 "reranker_impact": reranker_impact,
                 "context_placement_strategy": context_placement_strategy or "reverse",
                 "faithfulness": faithfulness,
+                "root_cause": root_cause,
             }
 
         thresh_critical = min_imp + (0.3 * range_imp)
@@ -865,6 +959,15 @@ def simulate_rag_pipeline(
             "quality_per_token": round(ans_quality / sel_tokens, 6) if sel_tokens > 0 else 0.0,
         }
 
+    root_cause = _compute_root_cause_analysis(
+        all_chunks=all_chunks,
+        valid_chunks=valid_chunks,
+        retrieved_chunks=all_chunks[:top_k] if total_chunks_created > 0 else [],
+        ignored_relevant_chunks=ignored_relevant_chunks,
+        retrieval_analysis=retrieval_analysis,
+        faithfulness=faithfulness,
+    )
+
     return {
         "total_original_tokens": total_tokens,
         "total_chunks_created": total_chunks_created,
@@ -898,4 +1001,5 @@ def simulate_rag_pipeline(
         "reranker_impact": reranker_impact,
         "context_placement_strategy": context_placement_strategy or "reverse",
         "faithfulness": faithfulness,
+        "root_cause": root_cause,
     }
