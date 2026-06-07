@@ -1,11 +1,13 @@
 import copy
 import logging
 import os
+import re
 
 logger = logging.getLogger(__name__)
 
 MIN_CLAIM_LENGTH = 15
 
+# Default imports (which can be overridden by dynamic patching)
 try:
     from core.attention import calculate_attention_weights
     from core.context_placement import build_prompt
@@ -41,89 +43,9 @@ except ModuleNotFoundError:
     from backend.core.tokenization import decode_tokens, get_tokens
     from backend.query_transformers import transform_query
 
-def _compute_root_cause_analysis(
-    all_chunks: list[dict],
-    valid_chunks: list[dict],
-    retrieved_chunks: list[dict],
-    ignored_relevant_chunks: list,
-    retrieval_analysis: dict,
-    faithfulness: dict,
-) -> dict:
-    # 1. Retrieval Failure Confidence (Z-score based & relative to baseline)
-    scores = [c.get("rerank_score", c.get("similarity_score", 0.0)) for c in all_chunks]
-    max_relevance = max(scores, default=0.0)
-    
-    if len(scores) > 1:
-        mean_val = sum(scores) / len(scores)
-        std_val = max(0.01, (sum((x - mean_val) ** 2 for x in scores) / len(scores)) ** 0.5)
-        z_score = (max_relevance - mean_val) / std_val
-        retrieval_failure_confidence = round(max(0.0, min(1.0, (2.0 - z_score) / 1.5)), 3)
-    else:
-        retrieval_failure_confidence = round(max(0.0, min(1.0, (0.7 - max_relevance) / 0.35)), 3)
-
-    # 2. Context Failure Confidence (Adaptive relevance threshold)
-    retrieved_scores = [c.get("rerank_score", c.get("similarity_score", 0.0)) for c in retrieved_chunks]
-    retrieved_avg = sum(retrieved_scores) / len(retrieved_scores) if retrieved_scores else 0.0
-    global_relevance_thresh = max(0.3, retrieved_avg * 0.8)
-    
-    retrieved_relevant = [c for c in retrieved_chunks if c.get("rerank_score", c.get("similarity_score", 0.0)) >= global_relevance_thresh]
-    valid_chunk_indices = {c.get("chunk_index") for c in valid_chunks}
-    dropped_relevant = [c for c in retrieved_relevant if c.get("chunk_index") not in valid_chunk_indices]
-
-    dropped_rel_ratio = len(dropped_relevant) / max(1, len(retrieved_relevant)) if retrieved_relevant else 0.0
-    ignored_rel_ratio = len(ignored_relevant_chunks) / max(1, len(valid_chunks)) if valid_chunks else 0.0
-    usage_gap = retrieval_analysis.get("gap", 0.0)
-
-    base_context_failure = max(dropped_rel_ratio, ignored_rel_ratio, usage_gap * 2.0)
-    context_failure_confidence = round(max(0.0, min(1.0, base_context_failure)) * (1.0 - retrieval_failure_confidence), 3)
-
-    # 3. Generation Failure Confidence
-    faithfulness_score = faithfulness.get("score", 1.0) if faithfulness else 1.0
-    generation_failure_confidence = round(1.0 - faithfulness_score, 3)
-
-    # 4. Primary Cause and Reason
-    confidences = {
-        "retrieval_failure": retrieval_failure_confidence,
-        "context_failure": context_failure_confidence,
-        "generation_failure": generation_failure_confidence,
-    }
-    max_conf = max(confidences.values())
-
-    if max_conf < 0.20:
-        primary_cause = "none"
-        root_cause_reason = "No significant failure detected. Pipeline is operating optimally."
-    else:
-        primary_cause = max(confidences, key=confidences.get)
-        if primary_cause == "retrieval_failure":
-            root_cause_reason = f"All retrieved chunks lack semantic relevance to the query (max relevance score: {max_relevance:.2f})."
-        elif primary_cause == "context_failure":
-            if dropped_relevant:
-                root_cause_reason = f"Relevant chunks were retrieved but dropped due to context window limits or token budgeting ({len(dropped_relevant)} dropped)."
-            elif ignored_relevant_chunks:
-                root_cause_reason = f"Relevant chunks were placed in the prompt but ignored due to low attention weights / positional decay ({len(ignored_relevant_chunks)} ignored)."
-            else:
-                root_cause_reason = f"Suboptimal context integration detected: high utilization gap ({usage_gap:.2f}) or attention waste."
-        else:
-            unsupported_claims = faithfulness.get("unsupported_claims", 0)
-            root_cause_reason = f"Grounded context was successfully provided, but the model generated {unsupported_claims} unsupported claims (faithfulness: {faithfulness_score:.0%})."
-
-    # Construct evidence
-    evidence = {
-        "dropped_relevant_chunks": len(dropped_relevant),
-        "ignored_chunks": len(ignored_relevant_chunks),
-        "usage_gap": round(usage_gap, 3),
-        "max_relevance": round(max_relevance, 3),
-        "global_relevance_thresh": round(global_relevance_thresh, 3)
-    }
-
-    return {
-        "retrieval_failure_confidence": retrieval_failure_confidence,
-        "context_failure_confidence": context_failure_confidence,
-        "generation_failure_confidence": generation_failure_confidence,
-        "primary_cause": primary_cause,
-        "root_cause_reason": root_cause_reason,
-        "evidence": evidence,
-    }
+from backend.services import rag_pipeline
+from backend.services.rag_pipeline.diagnostics import _compute_root_cause_analysis
+from backend.services.rag_pipeline.evaluation import _score_answer_quality, _build_controlled_context
 
 
 def simulate_rag_pipeline(
@@ -149,6 +71,16 @@ def simulate_rag_pipeline(
     reranker_enabled: bool = True,
     generation_mode: str = "synthetic",
 ) -> dict:
+    # Resolve helper functions dynamically (supports chunk_simulator patching)
+    active_decode_tokens = getattr(rag_pipeline, "decode_tokens", None) or decode_tokens
+    active_get_tokens = getattr(rag_pipeline, "get_tokens", None) or get_tokens
+    active_encode_texts = getattr(rag_pipeline, "_encode_texts", None) or _encode_texts
+    active_keyword_overlap_score = getattr(rag_pipeline, "_keyword_overlap_score", None) or _keyword_overlap_score
+    active_normalized_words = getattr(rag_pipeline, "_normalized_words", None) or _normalized_words
+    active_ordered_terms = getattr(rag_pipeline, "_ordered_terms", None) or _ordered_terms
+    active_transform_query = getattr(rag_pipeline, "transform_query", None) or transform_query
+    active_rerank_chunks = getattr(rag_pipeline, "rerank_chunks", None) or rerank_chunks
+
     faithfulness = {"score": 0.0, "statements": [], "generated_answer": ""}
 
     if overlap > chunk_size * 0.5:
@@ -161,76 +93,6 @@ def simulate_rag_pipeline(
     # Initial limit based on context window; will be refined if budget_percent is active
     budget_token_limit = context_window
 
-    def _target_position_index(position: int | str | None, prompt_size: int) -> int:
-        if prompt_size <= 1:
-            return 0
-        if isinstance(position, str):
-            normalized = position.strip().lower()
-            if normalized == "first":
-                return 0
-            if normalized == "middle":
-                return prompt_size // 2
-            if normalized == "last":
-                return prompt_size - 1
-            try:
-                position = int(normalized)
-            except ValueError:
-                return prompt_size // 2
-        if isinstance(position, int):
-            return max(0, min(prompt_size - 1, position - 1))
-        return prompt_size // 2
-
-    def _build_controlled_context() -> list[dict] | None:
-        if gold_chunk_id is None or answer_chunk_position is None:
-            return None
-
-        gold_chunk = next((chunk for chunk in all_chunks if chunk.get("chunk_index") == gold_chunk_id), None)
-        if gold_chunk is None:
-            return None
-
-        prompt_size = max(1, min(final_k or top_k or len(all_chunks), len(all_chunks)))
-        target_index = _target_position_index(answer_chunk_position, prompt_size)
-        other_chunks = sorted(
-            (chunk for chunk in all_chunks if chunk.get("chunk_index") != gold_chunk_id),
-            key=lambda item: item.get("chunk_index", 0),
-        )[: max(0, prompt_size - 1)]
-        controlled = other_chunks[:]
-        controlled.insert(target_index, gold_chunk)
-        return controlled[:prompt_size]
-
-    def _score_answer_quality(chunks: list[dict]) -> dict | None:
-        if gold_chunk_id is None:
-            return None
-
-        gold_prompt_position = None
-        gold_chunk = None
-        for index, chunk in enumerate(chunks, start=1):
-            if chunk.get("chunk_index") == gold_chunk_id:
-                gold_prompt_position = index
-                gold_chunk = chunk
-                break
-
-        attention_score = float(gold_chunk.get("attention_weight", 0.0)) if gold_chunk else 0.0
-        semantic_support = float(gold_chunk.get("relevance_score", gold_chunk.get("similarity_score", 0.0))) if gold_chunk else 0.0
-
-        if gold_answer and gold_chunk:
-            encoded = _encode_texts([gold_answer, gold_chunk.get("decoded_text", "")])
-            if encoded is not None and len(encoded) == 2:
-                semantic_support = max(0.0, min(1.0, float(encoded[0] @ encoded[1])))
-            else:
-                semantic_support = _keyword_overlap_score(gold_answer, gold_chunk.get("decoded_text", ""))
-
-        answer_quality = round(attention_score * semantic_support, 3)
-        return {
-            "gold_chunk_id": gold_chunk_id,
-            "answer_chunk_position": answer_chunk_position,
-            "actual_position": gold_prompt_position,
-            "gold_chunk_in_prompt": gold_chunk is not None,
-            "gold_attention_weight": round(attention_score, 3),
-            "semantic_support": round(semantic_support, 3),
-            "answer_quality": answer_quality,
-        }
-
     all_chunks = []
     start = 0
     total_tokens = len(token_ids)
@@ -240,7 +102,7 @@ def simulate_rag_pipeline(
     while start < total_tokens:
         end = min(start + chunk_size, total_tokens)
         chunk_tokens = token_ids[start:end]
-        decoded_text = decode_tokens(chunk_tokens, tokenizer_name)
+        decoded_text = active_decode_tokens(chunk_tokens, tokenizer_name)
 
         all_chunks.append(
             {
@@ -274,24 +136,24 @@ def simulate_rag_pipeline(
     hyde_generated_terms = None
     if total_chunks_created > 0:
         query = query or original_text or ""
-        variants = transform_query(query, strategy=query_transformer, max_variants=query_variants_max) if query.strip() else []
+        variants = active_transform_query(query, strategy=query_transformer, max_variants=query_variants_max) if query.strip() else []
         query_texts = [variant.text for variant in variants] or ([query] if query.strip() else [])
-        query_terms_list = [_normalized_words(text) for text in query_texts]
-        query_embedding = _encode_texts(query_texts) if query_texts else None
+        query_terms_list = [active_normalized_words(text) for text in query_texts]
+        query_embedding = active_encode_texts(query_texts) if query_texts else None
         chunk_texts = [chunk["decoded_text"] for chunk in all_chunks]
-        chunk_terms_list = [_normalized_words(text) for text in chunk_texts]
-        chunk_embeddings = _encode_texts(chunk_texts) if query_embedding is not None else None
+        chunk_terms_list = [active_normalized_words(text) for text in chunk_texts]
+        chunk_embeddings = active_encode_texts(chunk_texts) if query_embedding is not None else None
 
         if query_transformer == "hyde" and variants:
             hyde_document = variants[0].text
-            hyde_length_tokens = len(get_tokens(hyde_document, tokenizer_name))
-            hyde_generated_terms = _ordered_terms(hyde_document)
+            hyde_length_tokens = len(active_get_tokens(hyde_document, tokenizer_name))
+            hyde_generated_terms = active_ordered_terms(hyde_document)
 
         if any(query_terms_list) or query_embedding is not None:
             for i, chunk in enumerate(all_chunks):
                 chunk_terms = chunk_terms_list[i]
                 keyword_scores = [
-                    _keyword_overlap_score(query_text, chunk["decoded_text"])
+                    active_keyword_overlap_score(query_text, chunk["decoded_text"])
                     for query_text in query_texts
                 ]
                 keyword_score = max(keyword_scores) if keyword_scores else 0.0
@@ -316,7 +178,7 @@ def simulate_rag_pipeline(
                 variant_scores = []
                 for i, chunk in enumerate(all_chunks):
                     chunk_terms = chunk_terms_list[i]
-                    keyword_score = _keyword_overlap_score(variant_text, chunk.get("decoded_text", ""))
+                    keyword_score = active_keyword_overlap_score(variant_text, chunk.get("decoded_text", ""))
                     if query_embedding is not None and chunk_embeddings is not None:
                         embedding_score = float(chunk_embeddings[i] @ query_embedding[variant_index])
                         score = 0.5 * embedding_score + 0.5 * keyword_score
@@ -345,10 +207,10 @@ def simulate_rag_pipeline(
                 retrieval_diversity = round(unique_retrieved_chunks / total_retrieved_chunks, 4)
                 retrieval_overlap = round(1.0 - retrieval_diversity, 4)
         elif original_text:
-            orig_terms = _normalized_words(original_text)
+            orig_terms = active_normalized_words(original_text)
             for chunk in all_chunks:
                 chunk_terms = chunk_terms_list[chunk.get("chunk_index", 1) - 1]
-                chunk["keyword_score"] = _keyword_overlap_score(original_text, chunk.get("decoded_text", ""))
+                chunk["keyword_score"] = active_keyword_overlap_score(original_text, chunk.get("decoded_text", ""))
                 chunk["embedding_score"] = None
                 chunk["similarity_score"] = chunk["keyword_score"]
         else:
@@ -415,7 +277,7 @@ def simulate_rag_pipeline(
     rerank_query = query or original_text or ""
 
     if reranker_enabled:
-        reranked_chunks = rerank_chunks(rerank_query, retrieved_chunks)
+        reranked_chunks = active_rerank_chunks(rerank_query, retrieved_chunks)
     else:
         # If reranking disabled, use retrieved chunks as-is (treat retrieval score as rerank score)
         reranked_chunks = retrieved_chunks
@@ -473,7 +335,7 @@ def simulate_rag_pipeline(
         is_duplicate = False
         for d in diverse_chunks:
             # Reusing existing lexical overlap function to check chunk similarity
-            overlap = _keyword_overlap_score(c["decoded_text"], d["decoded_text"])
+            overlap = active_keyword_overlap_score(c["decoded_text"], d["decoded_text"])
             if overlap > 0.8:  # 80% similar = duplicate
                 is_duplicate = True
                 break
@@ -527,7 +389,13 @@ def simulate_rag_pipeline(
         diverse_chunks = budgeted_chunks
         rerank_scores = [round(chunk.get("rerank_score", 0.0), 4) for chunk in diverse_chunks]
 
-    controlled_context = _build_controlled_context()
+    controlled_context = _build_controlled_context(
+        all_chunks=all_chunks,
+        gold_chunk_id=gold_chunk_id,
+        answer_chunk_position=answer_chunk_position,
+        final_k=final_k,
+        top_k=top_k
+    )
     if controlled_context is not None:
         final_limit = len(controlled_context)
         final_candidates = controlled_context
@@ -620,8 +488,8 @@ def simulate_rag_pipeline(
                 if "rerank_score" in chunk
                 else round(primary_score * chunk["positional_weight"], 3)
             )
-            snippet_start = decode_tokens(chunk.get("raw_tokens", [])[:5], tokenizer_name).strip()
-            snippet_end = decode_tokens(chunk.get("raw_tokens", [])[-5:], tokenizer_name).strip()
+            snippet_start = active_decode_tokens(chunk.get("raw_tokens", [])[:5], tokenizer_name).strip()
+            snippet_end = active_decode_tokens(chunk.get("raw_tokens", [])[-5:], tokenizer_name).strip()
             chunk["boundary_snippet"] = f"{snippet_start} ... {snippet_end}"
 
         return local_valid
@@ -657,7 +525,7 @@ def simulate_rag_pipeline(
     if not valid_chunks:
         # compute empty metrics
         retrieval_analysis = compute_retrieval_usage_gap([], total_relevant_retrieved)
-        answer_evaluation = _score_answer_quality([])
+        answer_evaluation = _score_answer_quality([], gold_chunk_id, answer_chunk_position, gold_answer)
         if answer_evaluation:
             retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]
         ignored_relevant_chunks = detect_ignored_relevant([])
@@ -685,6 +553,12 @@ def simulate_rag_pipeline(
             retrieval_analysis=retrieval_analysis,
             faithfulness=faithfulness,
         )
+
+        # Build dummy Groundedness Result
+        groundedness = {
+            "groundedness_score": 0.0,
+            "claims": []
+        }
 
         if budget_percent is None:
             return {
@@ -718,6 +592,7 @@ def simulate_rag_pipeline(
                 "reranker_impact": reranker_impact,
                 "context_placement_strategy": context_placement_strategy or "reverse",
                 "faithfulness": faithfulness,
+                "groundedness": groundedness,
                 "root_cause": root_cause,
             }
 
@@ -754,23 +629,16 @@ def simulate_rag_pipeline(
             "reranker_impact": reranker_impact,
             "context_placement_strategy": context_placement_strategy or "reverse",
             "faithfulness": faithfulness,
+            "groundedness": groundedness,
             "root_cause": root_cause,
         }
-#remarks : this pipeline builds a synthetic answer and then feeding it into the
-# faitfulness evaluator to test the evaluator pipeline
 
     # 5.5 Faithfulness Evaluation Pipeline
-    # Split sentences helper
-    #comments: converts sentence A and B
-    #problem : have same sentence splitting logic
-
     def _split_sentences(text: str) -> list[str]:
-        import re
         raw_sentences = re.split(r'(?<=[.!?])\s+', text.strip())
         return [s.strip() for s in raw_sentences if s.strip()]
 
     # If gold_answer is not provided, generate a simulated response
-    #
     active_gold_answer = gold_answer
     resolved_generation_mode = "synthetic"
 
@@ -828,7 +696,6 @@ def simulate_rag_pipeline(
         if not active_gold_answer or not active_gold_answer.strip():
             # Let's generate a partially-faithful simulated answer to demonstrate the evaluation flow
             faithful_sentence = ""
-            #search retrieved chunks
             for chunk in valid_chunks:
                 chunk_text = chunk.get("decoded_text", "").strip()
                 if chunk_text:
@@ -858,7 +725,6 @@ def simulate_rag_pipeline(
                             break
 
             if not unfaithful_sentence:
-                # Fallback unfaithful sentence if no other chunks exist
                 unfaithful_sentence = "Additionally, the system performs external web scraping to retrieve unrelated base statistics."
 
             if faithful_sentence:
@@ -870,11 +736,25 @@ def simulate_rag_pipeline(
     faithfulness = compute_faithfulness(
         answer=active_gold_answer,
         context_chunks=valid_chunks,
-        encode_fn=_encode_texts,
-        keyword_score_fn=_keyword_overlap_score,
+        encode_fn=active_encode_texts,
+        keyword_score_fn=active_keyword_overlap_score,
     )
     faithfulness["generated_answer"] = active_gold_answer
     faithfulness["generation_mode"] = resolved_generation_mode
+
+    # Build Groundedness Result
+    groundedness_claims = []
+    for c in faithfulness.get("claims", []):
+        groundedness_claims.append({
+            "claim": c.get("claim"),
+            "grounded": c.get("supported", False),
+            "chunk_index": c.get("supporting_chunk_index") if c.get("supported", False) else None,
+            "evidence": c.get("supporting_snippet") if c.get("supported", False) else None
+        })
+    groundedness = {
+        "groundedness_score": faithfulness.get("score", 1.0),
+        "claims": groundedness_claims
+    }
 
     visible_positions = range(len(valid_chunks))
     positional_weights = calculate_attention_weights(
@@ -927,8 +807,8 @@ def simulate_rag_pipeline(
         )
         final_importances.append(chunk["final_importance"])
 
-        snippet_start = decode_tokens(chunk["raw_tokens"][:5], tokenizer_name).strip()
-        snippet_end = decode_tokens(chunk["raw_tokens"][-5:], tokenizer_name).strip()
+        snippet_start = active_decode_tokens(chunk.get("raw_tokens", [])[:5], tokenizer_name).strip()
+        snippet_end = active_decode_tokens(chunk.get("raw_tokens", [])[-5:], tokenizer_name).strip()
         chunk["boundary_snippet"] = f"{snippet_start} ... {snippet_end}"
 
     # Adaptive Risk Assessment
@@ -951,7 +831,7 @@ def simulate_rag_pipeline(
                     chunk["risk_level"] = "safe (high retention)"
 
             retrieval_analysis = compute_retrieval_usage_gap(valid_chunks, total_relevant_retrieved)
-            answer_evaluation = _score_answer_quality(valid_chunks)
+            answer_evaluation = _score_answer_quality(valid_chunks, gold_chunk_id, answer_chunk_position, gold_answer)
             if answer_evaluation:
                 retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]
             ignored_relevant_chunks = detect_ignored_relevant(valid_chunks)
@@ -1013,6 +893,7 @@ def simulate_rag_pipeline(
                 "reranker_impact": reranker_impact,
                 "context_placement_strategy": context_placement_strategy or "reverse",
                 "faithfulness": faithfulness,
+                "groundedness": groundedness,
                 "root_cause": root_cause,
             }
 
@@ -1031,7 +912,7 @@ def simulate_rag_pipeline(
                 chunk["risk_level"] = "safe (high retention)"
 
     retrieval_analysis = compute_retrieval_usage_gap(valid_chunks, total_relevant_retrieved)
-    answer_evaluation = _score_answer_quality(valid_chunks)
+    answer_evaluation = _score_answer_quality(valid_chunks, gold_chunk_id, answer_chunk_position, gold_answer)
     if answer_evaluation:
         retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]
     ignored_relevant_chunks = detect_ignored_relevant(valid_chunks)
@@ -1093,5 +974,6 @@ def simulate_rag_pipeline(
         "reranker_impact": reranker_impact,
         "context_placement_strategy": context_placement_strategy or "reverse",
         "faithfulness": faithfulness,
+        "groundedness": groundedness,
         "root_cause": root_cause,
     }

@@ -1362,3 +1362,15 @@ def test_root_cause_analysis_rag_simulation():
     assert "primary_cause" in rc
     assert "root_cause_reason" in rc
     assert isinstance(rc["primary_cause"], str)
+
+    assert "groundedness" in data
+    g = data["groundedness"]
+    assert "groundedness_score" in g
+    assert "claims" in g
+    assert isinstance(g["claims"], list)
+    if g["claims"]:
+        c = g["claims"][0]
+        assert "claim" in c
+        assert "grounded" in c
+        assert "chunk_index" in c
+        assert "evidence" in c
