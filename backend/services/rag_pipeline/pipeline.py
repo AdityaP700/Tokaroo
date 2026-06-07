@@ -559,6 +559,11 @@ def simulate_rag_pipeline(
             "groundedness_score": 0.0,
             "claims": []
         }
+        citation_coverage = {
+            "coverage_score": 0.0,
+            "claims_with_citations": 0,
+            "total_claims": 0
+        }
 
         if budget_percent is None:
             return {
@@ -593,6 +598,7 @@ def simulate_rag_pipeline(
                 "context_placement_strategy": context_placement_strategy or "reverse",
                 "faithfulness": faithfulness,
                 "groundedness": groundedness,
+                "citation_coverage": citation_coverage,
                 "root_cause": root_cause,
             }
 
@@ -630,6 +636,7 @@ def simulate_rag_pipeline(
             "context_placement_strategy": context_placement_strategy or "reverse",
             "faithfulness": faithfulness,
             "groundedness": groundedness,
+            "citation_coverage": citation_coverage,
             "root_cause": root_cause,
         }
 
@@ -696,6 +703,7 @@ def simulate_rag_pipeline(
         if not active_gold_answer or not active_gold_answer.strip():
             # Let's generate a partially-faithful simulated answer to demonstrate the evaluation flow
             faithful_sentence = ""
+            faithful_chunk_index = None
             for chunk in valid_chunks:
                 chunk_text = chunk.get("decoded_text", "").strip()
                 if chunk_text:
@@ -704,6 +712,7 @@ def simulate_rag_pipeline(
                         for s in sentences:
                             if len(s) > MIN_CLAIM_LENGTH:
                                 faithful_sentence = s
+                                faithful_chunk_index = chunk.get("chunk_index")
                                 break
                         if faithful_sentence:
                             break
@@ -728,7 +737,7 @@ def simulate_rag_pipeline(
                 unfaithful_sentence = "Additionally, the system performs external web scraping to retrieve unrelated base statistics."
 
             if faithful_sentence:
-                active_gold_answer = f"{faithful_sentence} {unfaithful_sentence}"
+                active_gold_answer = f"{faithful_sentence} [Chunk {faithful_chunk_index}] {unfaithful_sentence}"
             else:
                 active_gold_answer = unfaithful_sentence
 
@@ -755,6 +764,39 @@ def simulate_rag_pipeline(
     groundedness = {
         "groundedness_score": faithfulness.get("score", 1.0),
         "claims": groundedness_claims
+    }
+
+    # Build Citation Coverage
+    claims = faithfulness.get("claims", [])
+    total_claims = len(claims)
+    claims_with_citations = 0
+    
+    for c in claims:
+        text = c.get("claim", "")
+        # Extract cited chunk indices from claim text
+        cited_indices = []
+        # Match [1], [Chunk 1], (1), (Chunk 1), Chunk 1
+        for match in re.finditer(r'\[\s*(?:[Cc]hunk\s*)?(\d+)\s*\]', text):
+            cited_indices.append(int(match.group(1)))
+        for match in re.finditer(r'\(\s*(?:[Cc]hunk\s*)?(\d+)\s*\)', text):
+            cited_indices.append(int(match.group(1)))
+        for match in re.finditer(r'\b[Cc]hunk\s*(\d+)\b', text):
+            cited_indices.append(int(match.group(1)))
+            
+        cited_set = set(cited_indices)
+        
+        # Check if the claim is supported AND the supporting chunk index is among the cited indices
+        if c.get("supported", False):
+            sup_idx = c.get("supporting_chunk_index")
+            if sup_idx is not None and sup_idx in cited_set:
+                claims_with_citations += 1
+            
+    coverage_score = round(claims_with_citations / total_claims, 3) if total_claims > 0 else 0.0
+    
+    citation_coverage = {
+        "coverage_score": coverage_score,
+        "claims_with_citations": claims_with_citations,
+        "total_claims": total_claims
     }
 
     visible_positions = range(len(valid_chunks))
@@ -895,6 +937,7 @@ def simulate_rag_pipeline(
                 "context_placement_strategy": context_placement_strategy or "reverse",
                 "faithfulness": faithfulness,
                 "groundedness": groundedness,
+                "citation_coverage": citation_coverage,
                 "root_cause": root_cause,
             }
 
@@ -976,5 +1019,6 @@ def simulate_rag_pipeline(
         "context_placement_strategy": context_placement_strategy or "reverse",
         "faithfulness": faithfulness,
         "groundedness": groundedness,
+        "citation_coverage": citation_coverage,
         "root_cause": root_cause,
     }

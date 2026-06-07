@@ -1375,3 +1375,9 @@ def test_root_cause_analysis_rag_simulation():
         assert "chunk_index" in c
         assert "evidence" in c
         assert "evidence_similarity" in c
+        
+    assert "citation_coverage" in data
+    cc = data["citation_coverage"]
+    assert "coverage_score" in cc
+    assert "claims_with_citations" in cc
+    assert "total_claims" in cc

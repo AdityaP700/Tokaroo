@@ -222,6 +222,11 @@ class GroundednessResult(BaseModel):
     groundedness_score: float = Field(0.0, description="Overall groundedness score: ratio of grounded claims")
     claims: List[GroundednessClaim] = Field(default_factory=list, description="Breakdown of groundedness for each claim")
 
+class CitationCoverage(BaseModel):
+    coverage_score: float = Field(0.0, description="Ratio of claims with citations")
+    claims_with_citations: int = Field(0, description="Number of claims containing a citation")
+    total_claims: int = Field(0, description="Total number of claims evaluated")
+
 class RootCause(BaseModel):
     retrieval_failure_confidence: float = Field(..., description="Confidence score that the retriever failed to find relevant chunks")
     context_failure_confidence: float = Field(..., description="Confidence score that retrieved chunks were lost or ignored")
@@ -260,6 +265,7 @@ class RagChunkResponse(BaseModel):
     answer_evaluation: Optional[Dict[str, Any]] = None
     faithfulness: Optional[FaithfulnessResult] = None
     groundedness: Optional[GroundednessResult] = None
+    citation_coverage: Optional[CitationCoverage] = None
     root_cause: Optional[RootCause] = None
     ignored_relevant_chunks: Optional[List[int]] = None
     attention_waste: Optional[float] = None
