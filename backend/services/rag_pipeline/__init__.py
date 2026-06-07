@@ -30,7 +30,7 @@ _ordered_terms = _default_ordered_terms
 transform_query = _default_transform_query
 rerank_chunks = _default_rerank_chunks
 
-from backend.services.rag_pipeline.pipeline import simulate_rag_pipeline
+from .pipeline import simulate_rag_pipeline
 
 __all__ = [
     "simulate_rag_pipeline",

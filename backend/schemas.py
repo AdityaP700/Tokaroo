@@ -216,6 +216,7 @@ class GroundednessClaim(BaseModel):
     grounded: bool = Field(..., description="Whether the claim is grounded in the retrieved context")
     chunk_index: Optional[int] = Field(None, description="Index of the chunk containing the supporting evidence")
     evidence: Optional[str] = Field(None, description="Specific snippet or sentence showing the evidence")
+    evidence_similarity: Optional[float] = Field(None, description="The similarity score between the claim and the evidence snippet")
 
 class GroundednessResult(BaseModel):
     groundedness_score: float = Field(0.0, description="Overall groundedness score: ratio of grounded claims")

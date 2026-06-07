@@ -43,9 +43,9 @@ except ModuleNotFoundError:
     from backend.core.tokenization import decode_tokens, get_tokens
     from backend.query_transformers import transform_query
 
-from backend.services import rag_pipeline
-from backend.services.rag_pipeline.diagnostics import _compute_root_cause_analysis
-from backend.services.rag_pipeline.evaluation import _score_answer_quality, _build_controlled_context
+from services import rag_pipeline
+from .diagnostics import _compute_root_cause_analysis
+from .evaluation import _score_answer_quality, _build_controlled_context
 
 
 def simulate_rag_pipeline(
@@ -749,7 +749,8 @@ def simulate_rag_pipeline(
             "claim": c.get("claim"),
             "grounded": c.get("supported", False),
             "chunk_index": c.get("supporting_chunk_index") if c.get("supported", False) else None,
-            "evidence": c.get("supporting_snippet") if c.get("supported", False) else None
+            "evidence": c.get("supporting_snippet") if c.get("supported", False) else None,
+            "evidence_similarity": c.get("max_similarity") if c.get("supported", False) else None
         })
     groundedness = {
         "groundedness_score": faithfulness.get("score", 1.0),

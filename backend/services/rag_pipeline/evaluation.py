@@ -1,4 +1,4 @@
-from backend.services import rag_pipeline
+from services import rag_pipeline
 
 def _target_position_index(position: int | str | None, prompt_size: int) -> int:
     if prompt_size <= 1:

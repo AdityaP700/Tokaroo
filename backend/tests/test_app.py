@@ -1374,3 +1374,4 @@ def test_root_cause_analysis_rag_simulation():
         assert "grounded" in c
         assert "chunk_index" in c
         assert "evidence" in c
+        assert "evidence_similarity" in c
