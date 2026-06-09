@@ -778,7 +778,7 @@ def simulate_rag_pipeline(
                     unfaithful_sentence = "Additionally, the system performs external web scraping to retrieve unrelated base statistics."
 
             if faithful_sentence:
-                active_gold_answer = f"{faithful_sentence} [Chunk {faithful_chunk_index}]. {unfaithful_sentence}"
+                active_gold_answer = f"{faithful_sentence.rstrip(' .!?')} [Chunk {faithful_chunk_index}]. {unfaithful_sentence}"
             else:
                 active_gold_answer = unfaithful_sentence
 

@@ -1,6 +1,8 @@
-# Tokaroo — The Adaptive RAG Evaluator & Optimizer
+# Tokaroo : The Adaptive RAG Evaluator & Optimizer
 
-
+<p align="center">
+  <img src="Public/tokaroo.png"  width="800" alt="Tokaroo theme">
+</p>
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
