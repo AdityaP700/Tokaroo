@@ -1,7 +1,7 @@
 # Tokaroo : The Adaptive RAG Evaluator & Optimizer
 
 <p align="center">
-  <img src="Public/tokaroo.png"  width="800" alt="Tokaroo theme">
+  <img src="Public/tokaroo.png"  width="170" height="150" alt="Tokaroo theme">
 </p>
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
@@ -31,7 +31,7 @@ Most RAG systems tell you **WHAT** answer was generated. **Tokaroo tells you WHY
 * Did the model hallucinate?
 
 <p align="center">
-  <img src="Public/t_flowchart.png" width="600" alt="Tokaroo Flowchart">
+  <img src="Public/t_flowchart.png" height="180" width="190" alt="Tokaroo Flowchart">
 </p>
 
 ### The RAG Mental Model
