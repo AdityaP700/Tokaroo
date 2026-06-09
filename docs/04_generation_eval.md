@@ -1,6 +1,5 @@
 # 04. Generation Evaluation
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-<script>mermaid.initialize({startOnLoad:true});</script>
+
 Generation evaluation verifies whether the model-generated response is grounded, faithful to the source material, and free of hallucinations.
 
 ---

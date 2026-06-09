@@ -1,6 +1,5 @@
 # 02. Retrieval Engineering
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-<script>mermaid.initialize({startOnLoad:true});</script>
+
 Retrieval is the foundation of any RAG system. Tokaroo implements a hybrid dense-lexical engine with query expansion and cross-encoder reranking to ensure high relevance and coverage.
 
 ---

@@ -1,6 +1,5 @@
 # 05. RAG Observability & Diagnostics
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-<script>mermaid.initialize({startOnLoad:true});</script>
+
 Observability links retrieval metrics, prompt context structures, and generation output to diagnose and pinpoint precisely why a RAG pipeline fails.
 
 ---

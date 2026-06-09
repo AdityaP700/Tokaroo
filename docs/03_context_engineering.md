@@ -1,6 +1,5 @@
 # 03. Context Engineering
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-<script>mermaid.initialize({startOnLoad:true});</script>
+
 Even when the necessary source information is retrieved, how that information is formatted, budgeted, and placed inside the LLM prompt context determines whether the model can retrieve and use it.
 
 ---

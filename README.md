@@ -1,7 +1,6 @@
 # Tokaroo — The Adaptive RAG Evaluator & Optimizer
 
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-<script>mermaid.initialize({startOnLoad:true});</script>
+
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -57,21 +56,21 @@ Tokaroo operates across **four distinct conceptual layers**:
 graph TD
     Tokaroo[Tokaroo] --> RetEval["Retrieval Evaluation"]
     Tokaroo --> GenEval["Generation Evaluation"]
-    
+
     subgraph Retrieval ["Retrieval Metrics"]
         RetEval --> Recall["Recall@K"]
         RetEval --> MRR["MRR"]
         RetEval --> nDCG["nDCG"]
         RetEval --> HitRate["Hit Rate"]
     end
-    
+
     subgraph Generation ["Generation Metrics"]
         GenEval --> Faithfulness["Faithfulness"]
         GenEval --> Groundedness["Groundedness"]
         GenEval --> Citation["Citation Coverage"]
         GenEval --> RCA["Root Cause Analysis"]
     end
-    
+
     Retrieval --> RAG["RAG Observability"]
     Generation --> RAG
 

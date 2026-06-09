@@ -1,6 +1,5 @@
 # 01. Overview
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-<script>mermaid.initialize({startOnLoad:true});</script>
+
 
 Tokaroo is a diagnostic and optimization framework for Retrieval-Augmented Generation (RAG) pipelines. It transitions developers from a trial-and-error approach to a systematic, observation-backed methodology for configuring RAG parameters.
 
