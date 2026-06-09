@@ -203,52 +203,15 @@ def simulate_rag(request: RagChunkRequest):
     top_k = max(request.top_k or 5, request.final_k or 0)
     retrieval_strategy = request.retrieval_strategy or "relevance_sorted"
 
-    # Run the chunking simulator
-    rag_data = run_rag_simulation(
-        token_ids=token_ids,
-        chunk_size=request.chunk_size,
-        query=request.query or request.text,
-        overlap=request.overlap,
-        tokenizer_name=config["tokenizer"],
-        top_k=top_k,
-        budget_percent=request.budget_percent,
-        final_k=request.final_k,
-        retrieval_strategy=retrieval_strategy,
-        context_window=config["context_window"],
-        original_text=request.text,
-        query_transformer=request.query_transformer,
-        query_variants_max=request.query_variants_max,
-        relevance_labels=request.relevance_labels,
-        context_placement_strategy=request.context_placement_strategy,
-        random_seed=request.random_seed,
-        gold_chunk_id=request.gold_chunk_id,
-        answer_chunk_position=request.answer_chunk_position,
-        gold_answer=request.gold_answer,
-        reranker_enabled=request.reranker_enabled,
-        generation_mode=request.generation_mode,
-    )
-
-    # ---------------------------------------------------------
-    # FINAL DIAGNOSIS LAYER
-    # ---------------------------------------------------------
-    insights = generate_rag_diagnosis(rag_data, top_k, retrieval_strategy, request.chunk_size)
-
-    # ---------------------------------------------------------
-    # ADAPTIVE OPTIMIZATION (2-PASS)
-    # ---------------------------------------------------------
-    if request.auto_optimize and insights["health_score"] < 85:
-        new_chunk_size = insights["recommended_config"].get("chunk_size", request.chunk_size)
-        new_overlap = insights["recommended_config"].get("overlap", request.overlap)
-        new_top_k = max(insights["recommended_config"].get("top_k", top_k), request.final_k or 0)
-
-        # Re-run with optimized parameters
+    try:
+        # Run the chunking simulator
         rag_data = run_rag_simulation(
             token_ids=token_ids,
-            chunk_size=new_chunk_size,
+            chunk_size=request.chunk_size,
             query=request.query or request.text,
-            overlap=new_overlap,
+            overlap=request.overlap,
             tokenizer_name=config["tokenizer"],
-            top_k=new_top_k,
+            top_k=top_k,
             budget_percent=request.budget_percent,
             final_k=request.final_k,
             retrieval_strategy=retrieval_strategy,
@@ -260,14 +223,56 @@ def simulate_rag(request: RagChunkRequest):
             context_placement_strategy=request.context_placement_strategy,
             random_seed=request.random_seed,
             gold_chunk_id=request.gold_chunk_id,
+            gold_chunk_ids=request.gold_chunk_ids,
             answer_chunk_position=request.answer_chunk_position,
             gold_answer=request.gold_answer,
             reranker_enabled=request.reranker_enabled,
             generation_mode=request.generation_mode,
         )
-        # Re-analyze with the new data
-        insights = generate_rag_diagnosis(rag_data, new_top_k, retrieval_strategy, new_chunk_size)
-        insights["is_optimized"] = True
+
+        # ---------------------------------------------------------
+        # FINAL DIAGNOSIS LAYER
+        # ---------------------------------------------------------
+        insights = generate_rag_diagnosis(rag_data, top_k, retrieval_strategy, request.chunk_size)
+
+        # ---------------------------------------------------------
+        # ADAPTIVE OPTIMIZATION (2-PASS)
+        # ---------------------------------------------------------
+        if request.auto_optimize and insights["health_score"] < 85:
+            new_chunk_size = insights["recommended_config"].get("chunk_size", request.chunk_size)
+            new_overlap = insights["recommended_config"].get("overlap", request.overlap)
+            new_top_k = max(insights["recommended_config"].get("top_k", top_k), request.final_k or 0)
+
+            # Re-run with optimized parameters
+            rag_data = run_rag_simulation(
+                token_ids=token_ids,
+                chunk_size=new_chunk_size,
+                query=request.query or request.text,
+                overlap=new_overlap,
+                tokenizer_name=config["tokenizer"],
+                top_k=new_top_k,
+                budget_percent=request.budget_percent,
+                final_k=request.final_k,
+                retrieval_strategy=retrieval_strategy,
+                context_window=config["context_window"],
+                original_text=request.text,
+                query_transformer=request.query_transformer,
+                query_variants_max=request.query_variants_max,
+                relevance_labels=request.relevance_labels,
+                context_placement_strategy=request.context_placement_strategy,
+                random_seed=request.random_seed,
+                gold_chunk_id=request.gold_chunk_id,
+                gold_chunk_ids=request.gold_chunk_ids,
+                answer_chunk_position=request.answer_chunk_position,
+                gold_answer=request.gold_answer,
+                reranker_enabled=request.reranker_enabled,
+                generation_mode=request.generation_mode,
+            )
+            # Re-analyze with the new data
+            insights = generate_rag_diagnosis(rag_data, new_top_k, retrieval_strategy, new_chunk_size)
+            insights["is_optimized"] = True
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     return RagChunkResponse(
         model=request.model,

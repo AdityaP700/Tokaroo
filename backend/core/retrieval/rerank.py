@@ -51,6 +51,12 @@ def get_cross_encoder_reranker():
 
 
 def rerank_chunks(query: str, chunks: list[dict]) -> list[dict]:
+    if not query or not query.strip():
+        for chunk in chunks:
+            chunk["cross_encoder_score"] = None
+            chunk["rerank_score"] = chunk.get("similarity_score", 0.0)
+        return chunks
+
     reranker = get_cross_encoder_reranker()
 
     if reranker is not None and chunks:

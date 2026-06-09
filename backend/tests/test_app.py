@@ -481,7 +481,7 @@ def test_simulate_rag_pipeline_adds_chunk_traceability(monkeypatch):
     assert result["retrieval_mode"] == "hybrid"
     assert result["reranked"] is True
     assert len(result["rerank_scores"]) == 4
-    assert result["chunks"][0]["relevance_score"] == result["chunks"][0]["similarity_score"]
+    assert result["chunks"][0]["relevance_score"] == result["chunks"][0]["rerank_score"]
     assert result["chunks"][0]["attention_weight"] == result["chunks"][0]["positional_weight"]
     assert result["chunks"][0]["used_by_model"] is True
     assert result["chunks"][1]["lost_reason"] in {"low_relevance", "lost_in_middle", "position_bias"}
@@ -494,7 +494,7 @@ def test_simulate_rag_pipeline_adds_chunk_traceability(monkeypatch):
     assert "attention_waste" in result
     assert isinstance(result["attention_waste"], float)
     assert "reranker_impact" in result
-    assert set(result["reranker_impact"].keys()) == {"before", "after"}
+    assert set(result["reranker_impact"].keys()) == {"before", "after", "net_effect"}
     assert set(result["reranker_impact"]["before"].keys()) == {"retrieval_quality", "usage_quality", "answer_quality", "coverage", "gap"}
     assert "retrieval_metrics" in result
     assert set(result["retrieval_metrics"].keys()) == {"recall_at_k", "mrr", "hit_rate", "ndcg"}
@@ -569,6 +569,42 @@ def test_simulate_rag_pipeline_reports_gold_metrics(monkeypatch):
     assert "retrieval_metrics_gold" in result
     assert set(result["retrieval_metrics_gold"].keys()) == {"recall_at_k", "mrr", "hit_rate", "ndcg"}
     assert result["retrieval_metrics"]["recall_at_k"] != result["retrieval_metrics_gold"]["recall_at_k"]
+
+
+def test_simulate_rag_pipeline_multiple_gold_chunk_ids(monkeypatch):
+    def fake_decode_tokens(tokens, tokenizer_name):
+        if tokens == [1]:
+            return "cats"
+        if tokens == [2]:
+            return "filler"
+        if tokens == [3]:
+            return "mid filler"
+        if tokens == [4]:
+            return "cats again"
+        return " ".join(str(token) for token in tokens)
+
+    monkeypatch.setattr(chunk_simulator, "decode_tokens", fake_decode_tokens)
+
+    result = simulate_rag_pipeline(
+        token_ids=[1, 2, 3, 4],
+        chunk_size=1,
+        query="cats",
+        overlap=0,
+        tokenizer_name="cl100k_base",
+        top_k=2,
+        final_k=2,
+        retrieval_strategy="relevance_sorted",
+        context_window=100,
+        original_text="cats filler mid filler cats again",
+        gold_chunk_ids=[1, 4],
+        answer_chunk_position="first",
+        gold_answer="cats",
+    )
+
+    assert "answer_evaluation" in result
+    ae = result["answer_evaluation"]
+    assert ae["gold_chunk_ids"] == [1, 4]
+    assert ae["gold_chunk_in_prompt"] is True
 
 
 def test_simulate_rag_pipeline_uses_gold_fixture(monkeypatch):
@@ -1345,8 +1381,8 @@ def test_root_cause_analysis_rag_simulation():
         json={
             "text": TEST_TEXT,
             "model": "claude-sonnet-4-6",
-            "chunk_size": 200,
-            "overlap": 20,
+            "chunk_size": 10,
+            "overlap": 2,
             "top_k": 3,
             "retrieval_strategy": "relevance_sorted",
             "gold_answer": "This is a dummy gold answer that will fail faithfulness.",

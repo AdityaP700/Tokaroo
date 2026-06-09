@@ -71,6 +71,7 @@ class RagChunkRequest(BaseModel):
         description="Gold labels by chunk_index. 0 = irrelevant, 1-3 = graded relevance"
     )
     gold_chunk_id: Optional[int] = Field(default=None, description="Chunk index that contains the reference answer")
+    gold_chunk_ids: Optional[list[int]] = Field(default=None, description="List of chunk indices containing the reference answer")
     answer_chunk_position: Optional[str | int] = Field(
         default=None,
         description="Controlled 1-based prompt position for the gold chunk, or 'first', 'middle', 'last'",

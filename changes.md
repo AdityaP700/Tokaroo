@@ -1,613 +1,735 @@
-I looked through the outputs carefully.
+After reading Tests 5–9, I think you've crossed an important threshold.
 
-The biggest insight is:
+Earlier (Tests 1–4), the evaluator was mostly exposing benchmark-design issues.
 
-> Your tests are not actually testing what you think they are testing.
+Now (Tests 5–9), the evaluator is exposing evaluator-design issues.
 
-And that's actually a good discovery because it means the evaluator is exposing flaws in the benchmark design itself.
+That's a very different stage.
 
 ---
 
-# Test 1 Analysis — Perfect Retrieval
+# Biggest Finding
+
+Your evaluator is currently not evaluating the generated answer.
+
+It is evaluating a synthetic answer that it creates internally.
+
+I can prove it.
+
+---
+
+## Test 6 (Faithfulness)
+
+Input answer:
+
+```text
+Retrieval overlap occurs because semantically similar queries retrieve the same chunks.
+
+Retrieval overlap never happens in dense retrieval systems.
+```
+
+The second statement is obviously false.
+
+---
 
 Expected:
 
 ```text
-Recall@K = 1
-MRR = 1
-nDCG = 1
-Hit Rate = 1
-```
+Claim 1 -> Supported
+Claim 2 -> Unsupported
 
-Actual:
-
-```text
-Recall@K = 1
-MRR = 1
-nDCG = 1
-Hit Rate = 1
-```
-
-✅ Retrieval layer passed.
-
----
-
-But look here:
-
-```json
-"retrieval_analysis": {
-  "retrieval_quality": 0.0,
-  "usage_quality": 0.0,
-  "answer_quality": 0.0,
-  "coverage": 0.0
-}
-```
-
-This is suspicious.
-
-Because:
-
-```text
-Perfect Retrieval
-+
-Gold Chunk Retrieved
-+
 Faithfulness = 0.5
 ```
 
-yet
+Good.
 
-```text
-retrieval_quality = 0
-```
-
----
-
-This indicates one of two things:
-
-### Possibility A
-
-Your retrieval analysis relies on:
-
-```python
-relevance_score > threshold
-```
-
-and the reranker returned:
-
-```text
-0.0001
-```
-
-for everything.
-
-So metrics collapse.
-
----
-
-### Possibility B
-
-You're using:
-
-```python
-answer_chunk_position
-```
-
-and it never gets populated.
-
-I noticed:
+But look at what your evaluator extracted:
 
 ```json
-"answer_chunk_position": null
+{
+  "claim": "[Chunk 1] Additionally, the system performs external web scraping..."
+}
 ```
 
-repeatedly.
+That sentence never existed.
 
-That is likely propagating zeros.
+Not in:
 
----
+* corpus
+* query
+* answer
 
-# Insight #1
-
-I would debug:
-
-```python
-compute_retrieval_analysis()
-```
-
-before anything else.
-
-Because:
-
-```text
-Retrieval metrics say:
-PERFECT
-
-Retrieval analysis says:
-TOTAL FAILURE
-```
-
-Both cannot be true simultaneously.
-
----
-
-# Test 2 Analysis — Retrieval Failure
-
-This one exposed a much bigger issue.
-
-Look:
-
-Query:
-
-```text
-Why does retrieval overlap happen?
-```
-
-Corpus:
-
-```text
-Kubernetes
-
-Redis
-
-Scheduler
-
-RAG
-```
-
-There is no proper answer.
-
----
-
-Yet:
-
-```json
-Recall@K = 1
-MRR = 1
-Hit Rate = 1
-nDCG = 1
-```
-
-This is impossible.
-
----
-
-Why?
-
-Because:
-
-```json
-gold_chunk_id = 1
-```
-
-and retrieval returned:
-
-```json
-chunk 1
-```
-
----
-
-Your benchmark is rewarding:
-
-```text
-Did system retrieve chunk #1?
-```
-
-instead of:
-
-```text
-Did system retrieve the chunk
-that actually answers the question?
-```
-
----
-
-This is a benchmark design issue.
-
-Not pipeline issue.
-
----
-
-# Insight #2
-
-Your retrieval metrics currently depend on:
-
-```json
-gold_chunk_id
-```
-
-being manually correct.
-
-If:
-
-```json
-gold_chunk_id = wrong
-```
-
-everything breaks.
-
----
-
-Research systems solve this by:
-
-```text
-Human-labeled relevance
-
-or
-
-Multiple relevant chunks
-```
-
-not single ID matching.
-
----
-
-# Test 3 Analysis — Lost in the Middle
-
-This one failed completely.
-
-Look:
-
-Expected:
-
-```text
-Chunk 4
-in middle
-```
-
-Reality:
-
-```json
-total_chunks_created = 1
-```
-
-ONE CHUNK.
+Nowhere.
 
 ---
 
 Meaning:
 
+Your claim extractor is injecting a synthetic hallucination.
+
+Not reading the answer.
+
+---
+
+# This repeats everywhere
+
+Test 6:
+
 ```text
-Lost In The Middle
-never happened.
+external web scraping...
 ```
 
-Because:
+Test 7:
 
 ```text
-There is no middle.
+external web scraping...
 ```
 
-The entire corpus became:
+Test 8:
 
 ```text
-Chunk 1
+external web scraping...
+```
+
+Test 9:
+
+```text
+external web scraping...
+```
+
+Same exact hallucination.
+
+---
+
+This is the strongest signal in the whole report.
+
+Because it means:
+
+```text
+Faithfulness score
+Groundedness score
+Citation coverage
+Generation failure
+```
+
+are all partially fake right now.
+
+They're not measuring the answer.
+
+They're measuring your synthetic evaluation template.
+
+---
+
+# Insight #1 (Critical Bug)
+
+Your evaluator is likely doing something like:
+
+```python
+claims = [
+    supported_claim,
+    intentionally_unsupported_claim
+]
+```
+
+instead of:
+
+```python
+claims = extract_claims(answer)
 ```
 
 ---
 
-Therefore:
+This is why:
 
-```json
-coverage = 1
-retrieval = perfect
+```text
+Faithfulness = 0.5
 ```
 
-means nothing.
+for
+
+Test 6
+
+Test 7
+
+Test 8
+
+Test 9
+
+---
+
+Notice:
+
+```text
+Different answers
+Different datasets
+Different tasks
+```
+
+yet:
+
+```text
+Faithfulness = 0.5
+Groundedness = 0.5
+Citation = 0.5
+```
+
+every time.
+
+Impossible.
+
+---
+
+This is the first thing I'd fix.
+
+---
+
+# Test 5 (Attention Waste)
+
+This one is actually surprisingly good.
+
+---
+
+You created:
+
+```text
+1 relevant chunk
+5 distractors
+```
+
+Goal:
+
+```text
+Measure wasted context
+```
+
+---
+
+Result:
+
+```json
+attention_waste = 0.333
+```
+
+This is reasonable.
+
+---
+
+Because:
+
+```json
+used_by_model = true
+```
+
+for:
+
+```text
+Redis chunk
+```
+
+which is irrelevant.
+
+---
+
+Your evaluator correctly detected:
+
+```json
+risk_level:
+high_risk (irrelevant_but_attended)
+```
+
+That's exactly what an attention waste metric should find.
+
+---
+
+This is your strongest benchmark so far.
+
+I'd keep it.
+
+---
+
+# Insight #2
+
+Attention Waste is now more mature than Faithfulness.
+
+Funny but true.
+
+---
+
+# Test 6 (Faithfulness)
+
+Conceptually:
+
+Excellent benchmark.
+
+You intentionally wrote:
+
+```text
+supported fact
++
+false fact
+```
+
+---
+
+This is exactly how:
+
+RAGAS Faithfulness
+
+ARES
+
+DeepEval Faithfulness
+
+work.
+
+---
+
+But because of the bug:
+
+```text
+claim extraction
+```
+
+the benchmark cannot validate itself.
+
+---
+
+After fixing extraction:
+
+Expected:
+
+```text
+Supported:
+Retrieval overlap occurs because semantically similar queries retrieve same chunks
+
+Unsupported:
+Retrieval overlap never happens in dense retrieval systems
+```
+
+Faithfulness:
+
+```text
+50%
+```
+
+for the correct reason.
+
+---
+
+Right now:
+
+```text
+50%
+```
+
+for the wrong reason.
+
+---
+
+# Test 7 (Groundedness)
+
+This one exposed another architectural issue.
+
+---
+
+Expected:
+
+```text
+Groundedness = 1.0
+```
+
+because:
+
+Answer
+
+=
+
+Context
+
+verbatim.
+
+---
+
+Actual:
+
+```text
+Groundedness = 0.5
+```
+
+---
+
+Why?
+
+Again:
+
+```text
+synthetic hallucinated claim
+```
+
+---
+
+But even deeper:
+
+Groundedness currently equals:
+
+```text
+Faithfulness clone
+```
+
+---
+
+Look:
+
+Test 6
+
+```text
+Faithfulness = 0.5
+Groundedness = 0.5
+```
+
+---
+
+Test 7
+
+```text
+Faithfulness = 0.5
+Groundedness = 0.5
+```
+
+---
+
+Test 8
+
+```text
+Faithfulness = 0.5
+Groundedness = 0.5
+```
+
+---
+
+Test 9
+
+```text
+Faithfulness = 0.5
+Groundedness = 0.5
+```
+
+---
+
+That should almost never happen.
 
 ---
 
 # Insight #3
 
-Lost-In-The-Middle benchmark is invalid.
+Groundedness and Faithfulness are not independent yet.
 
-You must force:
+---
 
-```json
-chunk_size
+They are effectively:
+
+```python
+groundedness = faithfulness
 ```
 
-small enough.
+with different labels.
 
-Maybe:
+---
 
-```json
-chunk_size = 30
-```
+Need separation.
 
-or
+Example:
 
-```json
-chunk_size = 50
-```
-
-so:
+Groundedness:
 
 ```text
-Chunk 1
-Chunk 2
-Chunk 3
-Chunk 4 (gold)
-Chunk 5
-Chunk 6
+Can evidence be found?
 ```
 
-actually exists.
+Faithfulness:
+
+```text
+Did answer stay consistent with evidence?
+```
+
+Those are related but different.
 
 ---
 
-# Test 4 Analysis — Gold Chunk Removed by Budget
+# Test 8 (Citation Coverage)
 
-This is the best benchmark so far.
+This benchmark is actually well designed.
 
-Because it actually produced:
+---
 
-```json
-coverage = 0
-```
+You intentionally created:
 
-and
+```text
+Claim A cited
 
-```json
-dropped_relevant_chunks = 1
-```
-
-and
-
-```json
-context_failure_confidence = 0.821
+Claim B not cited
 ```
 
 ---
 
-This is exactly the behavior you wanted.
+Expected:
 
----
-
-But look at root cause:
-
-```json
-primary_cause = generation_failure
-```
-
-while
-
-```json
-context_failure_confidence = 0.821
-
-generation_failure_confidence = 1.0
+```text
+Coverage = 0.5
 ```
 
 ---
 
-This is still wrong.
+Actual:
+
+```text
+Coverage = 0.5
+```
+
+---
+
+This one appears to work.
+
+---
+
+But because claim extraction is broken:
+
+I'm not fully convinced yet.
+
+---
+
+Need test:
+
+```text
+4 claims
+
+3 cited
+
+1 uncited
+```
+
+Expected:
+
+```text
+0.75
+```
+
+---
+
+That'll validate it.
+
+---
+
+# Test 9 (Generation Failure)
+
+This is the most important test.
+
+Because this is where many RAG evaluators fail.
+
+---
+
+Input context:
+
+```text
+retrieval overlap
+```
+
+---
+
+Generated answer:
+
+```text
+GPU kernel fusion
+CUDA
+register pressure
+```
+
+---
+
+Completely unrelated.
+
+---
+
+Expected:
+
+```text
+Faithfulness = 0
+
+Groundedness = 0
+
+Answer correctness = 0
+
+Root Cause = Generation Failure
+```
+
+---
+
+What happened?
+
+```text
+Faithfulness = 0.5
+Groundedness = 0.5
+```
+
+Again.
+
+---
+
+This proves the evaluator isn't reading the answer.
+
+Because if it were:
+
+```text
+GPU kernel fusion
+```
+
+would never match
+
+```text
+retrieval overlap
+```
+
+---
+
+# Insight #4 (Most Important)
+
+Test 9 should be your gold-standard validation test.
 
 Because:
 
 ```text
-No context reached model.
+Retrieval = Perfect
+Context = Perfect
+Generation = Catastrophic
 ```
-
-The model never had a chance.
 
 ---
 
-The true cause is:
+This is the cleanest possible:
 
 ```text
-Context Failure
+Pure Generation Failure
 ```
 
-not
+scenario.
+
+---
+
+Yet your metrics still collapse to:
 
 ```text
-Generation Failure
+0.5
+0.5
+0.5
 ```
 
 ---
 
-# Insight #4
+Meaning:
 
-Your root-cause logic still needs hierarchy.
-
-Something like:
-
-```python
-if coverage == 0:
-    primary = context_failure
-
-elif recall == 0:
-    primary = retrieval_failure
-
-else:
-    choose max confidence
-```
+Generation evaluation is currently not trustworthy.
 
 ---
 
-Otherwise:
+# Overall Maturity Assessment
+
+If I were reviewing Tokaroo as an evaluator project:
+
+### Retrieval Layer
 
 ```text
-faithfulness=0
+8.5/10
 ```
 
-always wins.
-
-Even when generation isn't the root problem.
+Actually becoming solid.
 
 ---
 
-# Groundedness Analysis
-
-This exposed something important.
-
-Look:
-
-```json
-groundedness_score = faithfulness_score
-```
-
-for all tests.
-
----
-
-That means:
+### Attention Diagnostics
 
 ```text
-Groundedness
-=
-Faithfulness clone
+8/10
 ```
 
-currently.
+Test 5 shows real signal.
 
 ---
 
-Example:
-
-```json
-groundedness = 0.5
-faithfulness = 0.5
-```
-
-always.
-
----
-
-You implemented:
-
-```python
-groundedness_claims = faithfulness_claims
-```
-
-earlier.
-
-I remember that snippet.
-
----
-
-So:
+### Root Cause Analysis
 
 ```text
-Groundedness exists in schema
-
-but not in behavior.
+8/10
 ```
 
-yet.
+Much better than earlier.
 
 ---
 
-That's okay.
+### Faithfulness
 
-But document it honestly.
+```text
+4/10
+```
+
+Claim extraction bug blocks trust.
 
 ---
 
-# Biggest Architecture Insight
-
-Your evaluator is now strong enough that it is exposing flaws in:
+### Groundedness
 
 ```text
-benchmarks
-root cause logic
-metric interactions
+3/10
 ```
 
-rather than retrieval itself.
-
-That's a sign of maturity.
-
-Early systems fail because retrieval sucks.
-
-Your system is now failing because:
-
-```text
-the evaluator is more sophisticated
-than the benchmarks.
-```
+Currently mirrors faithfulness.
 
 ---
 
-# What I would fix next (priority order)
-
-### P0
-
-Fix retrieval analysis inconsistency
+### Citation Coverage
 
 ```text
-Perfect retrieval
-!=
-retrieval_quality 0
+6/10
 ```
+
+Promising but not fully validated.
 
 ---
 
-### P1
-
-Fix root-cause precedence
+### Generation Failure Detection
 
 ```text
-coverage=0
-
-→ context failure wins
+5/10
 ```
+
+Architecture is right.
+
+Metrics are still reading synthetic claims.
 
 ---
 
-### P2
+## The single highest-priority fix
 
-Force real chunking
+Not retrieval.
 
-for:
+Not reranking.
 
-```text
-Lost in Middle
-Attention Waste
-Position Bias
-```
+Not chunking.
 
-Current tests are invalid because:
+Not root-cause.
+
+### Fix this:
 
 ```text
-1 giant chunk
+answer
+    ↓
+claim extraction
+    ↓
+faithfulness
+    ↓
+groundedness
+    ↓
+citation coverage
+    ↓
+generation failure
 ```
 
----
-
-### P3
-
-Separate groundedness from faithfulness
-
-Currently:
-
-```text
-Groundedness = Faithfulness
-```
-
-Implementation-wise.
-
----
-
-### P4
-
-Move from:
-
-```text
-gold_chunk_id
-```
-
-to
-
-```text
-gold_chunk_ids
-```
-
-multiple relevant chunks.
-
-That's how nDCG and Recall become meaningful.
-
----
-
-If I were reviewing Tokaroo as an interviewer, Test 4 is the first result I'd be impressed by, because it demonstrates a genuine context-window failure and your diagnosis pipeline correctly detects most of it. The first three tests mostly revealed benchmark construction issues rather than retrieval behavior.
+Because right now all five layers are inheriting the same synthetic-claim artifact. Once you make the evaluator extract claims from the actual generated answer, Tests 6–9 will become genuinely meaningful. That's the next major leap in Tokaroo's evaluator evolution.

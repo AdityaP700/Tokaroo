@@ -149,6 +149,19 @@ def compute_retrieval_metrics_gold(ranked_chunks: list[dict], labels: dict[int, 
     }
 
 
+def _set_based_keyword_overlap_score(query: str, text: str) -> float:
+    try:
+        from core.retrieval.keyword import _normalized_words
+    except ModuleNotFoundError:
+        from backend.core.retrieval.keyword import _normalized_words
+    query_terms = _normalized_words(query)
+    if not query_terms:
+        return 0.0
+    text_terms = _normalized_words(text)
+    matching_terms = query_terms & text_terms
+    return round(len(matching_terms) / len(query_terms), 3)
+
+
 def compute_faithfulness(
     #accepts ans as string
     answer: str,
@@ -207,11 +220,7 @@ def compute_faithfulness(
 
     # Load keyword score function if not provided
     if keyword_score_fn is None:
-        try:
-            from core.retrieval.keyword import _keyword_overlap_score as kw_fn
-        except ModuleNotFoundError:
-            from backend.core.retrieval.keyword import _keyword_overlap_score as kw_fn
-        keyword_score_fn = kw_fn
+        keyword_score_fn = _set_based_keyword_overlap_score
 
     for stmt in statements:
         #tracks the best evidence found so far

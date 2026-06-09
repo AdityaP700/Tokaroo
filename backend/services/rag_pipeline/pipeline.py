@@ -66,6 +66,7 @@ def simulate_rag_pipeline(
     context_placement_strategy: str | None = "reverse",
     random_seed: int | None = None,
     gold_chunk_id: int | None = None,
+    gold_chunk_ids: list[int] | None = None,
     answer_chunk_position: int | str | None = None,
     gold_answer: str | None = None,
     reranker_enabled: bool = True,
@@ -394,7 +395,8 @@ def simulate_rag_pipeline(
         gold_chunk_id=gold_chunk_id,
         answer_chunk_position=answer_chunk_position,
         final_k=final_k,
-        top_k=top_k
+        top_k=top_k,
+        gold_chunk_ids=gold_chunk_ids,
     )
     if controlled_context is not None:
         final_limit = len(controlled_context)
@@ -525,7 +527,7 @@ def simulate_rag_pipeline(
     if not valid_chunks:
         # compute empty metrics
         retrieval_analysis = compute_retrieval_usage_gap([], total_relevant_retrieved)
-        answer_evaluation = _score_answer_quality([], gold_chunk_id, answer_chunk_position, gold_answer)
+        answer_evaluation = _score_answer_quality([], gold_chunk_id, answer_chunk_position, gold_answer, gold_chunk_ids=gold_chunk_ids)
         if answer_evaluation:
             retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]
         ignored_relevant_chunks = detect_ignored_relevant([])
@@ -655,7 +657,7 @@ def simulate_rag_pipeline(
         if generation_mode == "llm":
             api_key = os.getenv("GEMINI_API_KEY")
             if not api_key:
-                logger.warning("GEMINI_API_KEY is not set. Falling back to synthetic generation mode.")
+                raise ValueError("GEMINI_API_KEY environment variable is not set. Real LLM generation mode requires a valid Gemini API key.")
             else:
                 try:
                     import google.generativeai as genai
@@ -696,9 +698,9 @@ def simulate_rag_pipeline(
                         resolved_generation_mode = "llm"
                         logger.info("Successfully generated real LLM answer.")
                     else:
-                        logger.warning("Gemini API returned empty text. Falling back to synthetic mode.")
+                        raise ValueError("Gemini API returned empty text.")
                 except Exception as e:
-                    logger.exception("Error generating LLM answer: %s. Falling back to synthetic mode.", e)
+                    raise ValueError(f"Error generating LLM answer: {str(e)}")
 
         if not active_gold_answer or not active_gold_answer.strip():
             # Let's generate a partially-faithful simulated answer to demonstrate the evaluation flow
@@ -734,10 +736,49 @@ def simulate_rag_pipeline(
                             break
 
             if not unfaithful_sentence:
-                unfaithful_sentence = "Additionally, the system performs external web scraping to retrieve unrelated base statistics."
+                if faithful_sentence:
+                    # Dynamically generate unfaithful sentence by negating faithful sentence
+                    helpers = {
+                        r"\bis\b": "is not",
+                        r"\bare\b": "are not",
+                        r"\bwas\b": "was not",
+                        r"\bwere\b": "were not",
+                        r"\bcan\b": "cannot",
+                        r"\bcannot\b": "can",
+                        r"\bshould\b": "should not",
+                        r"\bwill\b": "will not",
+                        r"\bdoes\b": "does not",
+                        r"\bdo\b": "do not",
+                        r"\bdid\b": "did not",
+                        r"\bhas\b": "has not",
+                        r"\bhave\b": "have not",
+                        r"\bhad\b": "had not",
+                        r"\balways\b": "never",
+                        r"\bnever\b": "always",
+                        r"\bmost\b": "few",
+                        r"\bleast\b": "most",
+                        r"\bmore\b": "less",
+                        r"\bless\b": "more",
+                    }
+                    mutated = faithful_sentence.strip(" .?!")
+                    mutated_flag = False
+                    for pattern, repl in helpers.items():
+                        mutated, count = re.subn(pattern, repl, mutated, flags=re.IGNORECASE)
+                        if count > 0:
+                            mutated_flag = True
+                            break
+                    if not mutated_flag:
+                        words = mutated.split()
+                        if len(words) > 2:
+                            words.insert(-1, "not")
+                            mutated = " ".join(words)
+                            mutated_flag = True
+                    unfaithful_sentence = mutated + "." if mutated_flag else "Additionally, the retrieved evidence is invalid."
+                else:
+                    unfaithful_sentence = "Additionally, the system performs external web scraping to retrieve unrelated base statistics."
 
             if faithful_sentence:
-                active_gold_answer = f"{faithful_sentence} [Chunk {faithful_chunk_index}] {unfaithful_sentence}"
+                active_gold_answer = f"{faithful_sentence} [Chunk {faithful_chunk_index}]. {unfaithful_sentence}"
             else:
                 active_gold_answer = unfaithful_sentence
 
@@ -754,15 +795,22 @@ def simulate_rag_pipeline(
     # Build Groundedness Result
     groundedness_claims = []
     for c in faithfulness.get("claims", []):
+        sim = c.get("max_similarity", 0.0)
         groundedness_claims.append({
             "claim": c.get("claim"),
             "grounded": c.get("supported", False),
             "chunk_index": c.get("supporting_chunk_index") if c.get("supported", False) else None,
             "evidence": c.get("supporting_snippet") if c.get("supported", False) else None,
-            "evidence_similarity": c.get("max_similarity") if c.get("supported", False) else None
+            "evidence_similarity": round(sim, 3)
         })
+    
+    if groundedness_claims:
+        groundedness_score = round(sum(c["evidence_similarity"] for c in groundedness_claims) / len(groundedness_claims), 3)
+    else:
+        groundedness_score = 1.0
+
     groundedness = {
-        "groundedness_score": faithfulness.get("score", 1.0),
+        "groundedness_score": groundedness_score,
         "claims": groundedness_claims
     }
 
@@ -874,7 +922,7 @@ def simulate_rag_pipeline(
                     chunk["risk_level"] = "safe (high retention)"
 
             retrieval_analysis = compute_retrieval_usage_gap(valid_chunks, total_relevant_retrieved)
-            answer_evaluation = _score_answer_quality(valid_chunks, gold_chunk_id, answer_chunk_position, gold_answer)
+            answer_evaluation = _score_answer_quality(valid_chunks, gold_chunk_id, answer_chunk_position, gold_answer, gold_chunk_ids=gold_chunk_ids)
             if answer_evaluation:
                 retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]
             ignored_relevant_chunks = detect_ignored_relevant(valid_chunks)
@@ -956,7 +1004,7 @@ def simulate_rag_pipeline(
                 chunk["risk_level"] = "safe (high retention)"
 
     retrieval_analysis = compute_retrieval_usage_gap(valid_chunks, total_relevant_retrieved)
-    answer_evaluation = _score_answer_quality(valid_chunks, gold_chunk_id, answer_chunk_position, gold_answer)
+    answer_evaluation = _score_answer_quality(valid_chunks, gold_chunk_id, answer_chunk_position, gold_answer, gold_chunk_ids=gold_chunk_ids)
     if answer_evaluation:
         retrieval_analysis["answer_quality"] = answer_evaluation["answer_quality"]
     ignored_relevant_chunks = detect_ignored_relevant(valid_chunks)

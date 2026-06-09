@@ -46,11 +46,20 @@ def _compute_root_cause_analysis(
     }
     max_conf = max(confidences.values())
 
+    coverage = retrieval_analysis.get("coverage", 0.0)
+
     if max_conf < 0.20:
         primary_cause = "none"
         root_cause_reason = "No significant failure detected. Pipeline is operating optimally."
     else:
-        primary_cause = max(confidences, key=confidences.get)
+        if coverage == 0.0:
+            if retrieval_failure_confidence > 0.5 or not retrieved_chunks:
+                primary_cause = "retrieval_failure"
+            else:
+                primary_cause = "context_failure"
+        else:
+            primary_cause = max(confidences, key=confidences.get)
+
         if primary_cause == "retrieval_failure":
             root_cause_reason = f"All retrieved chunks lack semantic relevance to the query (max relevance score: {max_relevance:.2f})."
         elif primary_cause == "context_failure":

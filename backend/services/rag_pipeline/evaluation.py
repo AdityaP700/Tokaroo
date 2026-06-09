@@ -24,19 +24,22 @@ def _build_controlled_context(
     gold_chunk_id: int | None,
     answer_chunk_position: int | str | None,
     final_k: int | None,
-    top_k: int
+    top_k: int,
+    gold_chunk_ids: list[int] | None = None,
 ) -> list[dict] | None:
-    if gold_chunk_id is None or answer_chunk_position is None:
+    resolved_gold_ids = gold_chunk_ids or ([gold_chunk_id] if gold_chunk_id is not None else [])
+    if not resolved_gold_ids or answer_chunk_position is None:
         return None
 
-    gold_chunk = next((chunk for chunk in all_chunks if chunk.get("chunk_index") == gold_chunk_id), None)
+    primary_gold_id = resolved_gold_ids[0]
+    gold_chunk = next((chunk for chunk in all_chunks if chunk.get("chunk_index") == primary_gold_id), None)
     if gold_chunk is None:
         return None
 
     prompt_size = max(1, min(final_k or top_k or len(all_chunks), len(all_chunks)))
     target_index = _target_position_index(answer_chunk_position, prompt_size)
     other_chunks = sorted(
-        (chunk for chunk in all_chunks if chunk.get("chunk_index") != gold_chunk_id),
+        (chunk for chunk in all_chunks if chunk.get("chunk_index") not in resolved_gold_ids),
         key=lambda item: item.get("chunk_index", 0),
     )[: max(0, prompt_size - 1)]
     controlled = other_chunks[:]
@@ -47,23 +50,31 @@ def _score_answer_quality(
     chunks: list[dict],
     gold_chunk_id: int | None,
     answer_chunk_position: int | str | None,
-    gold_answer: str | None
+    gold_answer: str | None,
+    gold_chunk_ids: list[int] | None = None,
 ) -> dict | None:
-    if gold_chunk_id is None:
+    resolved_gold_ids = gold_chunk_ids or ([gold_chunk_id] if gold_chunk_id is not None else [])
+    if not resolved_gold_ids:
         return None
 
+    # Find gold chunks in the prompt
+    gold_chunks = [c for c in chunks if c.get("chunk_index") in resolved_gold_ids]
+    
     gold_prompt_position = None
     gold_chunk = None
-    for index, chunk in enumerate(chunks, start=1):
-        if chunk.get("chunk_index") == gold_chunk_id:
-            gold_prompt_position = index
-            gold_chunk = chunk
-            break
+    if gold_chunks:
+        gold_chunk = gold_chunks[0]
+        for index, chunk in enumerate(chunks, start=1):
+            if chunk.get("chunk_index") == gold_chunk.get("chunk_index"):
+                gold_prompt_position = index
+                break
+    else:
+        gold_chunk = {"chunk_index": resolved_gold_ids[0]}
 
-    attention_score = float(gold_chunk.get("attention_weight", 0.0)) if gold_chunk else 0.0
-    semantic_support = float(gold_chunk.get("relevance_score", gold_chunk.get("similarity_score", 0.0))) if gold_chunk else 0.0
+    attention_score = float(gold_chunk.get("attention_weight", 0.0)) if "attention_weight" in gold_chunk else 0.0
+    semantic_support = float(gold_chunk.get("relevance_score", gold_chunk.get("similarity_score", 0.0))) if "similarity_score" in gold_chunk else 0.0
 
-    if gold_answer and gold_chunk:
+    if gold_answer and gold_chunk.get("decoded_text"):
         encode_fn = getattr(rag_pipeline, "_encode_texts", None)
         keyword_score_fn = getattr(rag_pipeline, "_keyword_overlap_score", None)
         encoded = encode_fn([gold_answer, gold_chunk.get("decoded_text", "")]) if encode_fn else None
@@ -74,10 +85,11 @@ def _score_answer_quality(
 
     answer_quality = round(attention_score * semantic_support, 3)
     return {
-        "gold_chunk_id": gold_chunk_id,
+        "gold_chunk_id": resolved_gold_ids[0],
+        "gold_chunk_ids": resolved_gold_ids,
         "answer_chunk_position": answer_chunk_position,
         "actual_position": gold_prompt_position,
-        "gold_chunk_in_prompt": gold_chunk is not None,
+        "gold_chunk_in_prompt": gold_chunk is not None and "decoded_text" in gold_chunk,
         "gold_attention_weight": round(attention_score, 3),
         "semantic_support": round(semantic_support, 3),
         "answer_quality": answer_quality,
